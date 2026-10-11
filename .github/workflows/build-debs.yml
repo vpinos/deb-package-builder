@@ -23,6 +23,10 @@ on:
         description: VPXConfig (vpinos/vpxconfig) release tag, or latest
         required: true
         default: latest
+      wivrn_version:
+        description: WiVRn (superhac/WiVRn) release tag, or latest
+        required: true
+        default: latest
 
 permissions:
   contents: write
@@ -58,6 +62,7 @@ jobs:
           - vpinfe_version: ${{ inputs.vpinfe_version }}
           - architectures: amd64, arm64
           - vpxconfig_version: ${{ inputs.vpxconfig_version }}
+          - wivrn_version: ${{ inputs.wivrn_version }}
           - package_revision: ${{ inputs.package_revision }}"
 
   vpinball:
@@ -189,3 +194,45 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           RELEASE_TAG: ${{ needs.create-release.outputs.release_tag }}
         run: gh release upload "$RELEASE_TAG" -R "$GITHUB_REPOSITORY" dist/vpxconfig/*.deb dist/vpxconfig/*.sha256 --clobber
+
+  wivrn:
+    needs: create-release
+    strategy:
+      fail-fast: false
+      matrix:
+        arch: [amd64, arm64]
+    runs-on: ubuntu-24.04
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Install wivrn packaging tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            curl \
+            dpkg-dev \
+            jq
+
+      - name: Fetch wivrn .deb from release asset
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          WIVRN_REPO: superhac/WiVRn
+          WIVRN_VERSION: ${{ inputs.wivrn_version }}
+          DEB_ARCH: ${{ matrix.arch }}
+          OUTDIR: ${{ github.workspace }}/dist/wivrn
+        run: scripts/build-wivrn-deb.sh
+
+      - name: Generate checksum
+        run: |
+          cd dist/wivrn
+          for deb in *.deb; do
+            sha256sum "$deb" > "$deb.sha256"
+          done
+
+      - name: Upload wivrn package to release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ needs.create-release.outputs.release_tag }}
+        run: gh release upload "$RELEASE_TAG" -R "$GITHUB_REPOSITORY" dist/wivrn/*.deb dist/wivrn/*.sha256 --clobber
