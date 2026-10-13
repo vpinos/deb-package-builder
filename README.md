@@ -13,6 +13,8 @@ The current packages are:
   release assets
 - `wivrn`, fetched from [`superhac/WiVRn`](https://github.com/superhac/WiVRn)
   release assets (already-built `.deb`s, republished as-is)
+- `xrizer`, built from [`Supreeeme/xrizer`](https://github.com/Supreeeme/xrizer)
+  release source
 
 GitHub rejects normal git files larger than 100 MB, while GitHub Release assets
 can be much larger. The workflow therefore uploads `.deb` files to a release
@@ -28,7 +30,7 @@ instructions.
 ## Build Packages
 
 Run the `Build Debian packages` workflow from the GitHub Actions tab. Each run
-builds `vpinball`, `vpinfe`, `vpxconfig` and `wivrn`.
+builds `vpinball`, `vpinfe`, `vpxconfig`, `wivrn` and `xrizer`.
 
 ## vpinball
 
@@ -100,6 +102,34 @@ apply to this package, since its Debian revision comes from upstream.
 names (`libqt6core6t64`, `libarchive13t64`, …) from Debian's 64-bit time_t
 transition, so it needs Debian 13 or newer.
 
+## xrizer
+
+Upstream only publishes an x86_64 build, so the `xrizer` job builds from
+source for both architectures. It runs natively on `ubuntu-24.04` (amd64) and
+`ubuntu-24.04-arm` (arm64) rather than cross-compiling. For each:
+
+1. reads the selected release from `https://github.com/Supreeeme/xrizer`
+   (`xrizer_version`, default `latest`),
+2. downloads that tag's source tarball,
+3. builds it with `cargo xbuild --release`, with the OpenXR loader statically
+   linked like upstream's own release builds. Games run inside the Steam Linux
+   Runtime container, which can't be relied on to have the host's loader,
+4. installs the runtime to `/usr/lib/xrizer` (`bin/linux64/vrclient.so` on
+   amd64, `bin/linuxarm64/vrclient.so` on arm64),
+5. sets the `libc6` minimum from the glibc symbol versions the library uses,
+6. builds `xrizer_<version>-<revision>_<arch>.deb`,
+7. generates a `.sha256` checksum sidecar, and
+8. uploads the `.deb` and checksum sidecar to the selected GitHub Release.
+
+The package version is the upstream release tag without the leading `v`, plus
+the Debian revision, e.g. `0.6-1`.
+
+Installing the package doesn't switch OpenVR over to xrizer, because that's a
+per-user setting. Either add `/usr/lib/xrizer` to the `runtime` list in
+`~/.config/openvr/openvrpaths.vrpath`, or launch games with
+`VR_OVERRIDE=/usr/lib/xrizer`. Inside the Steam Linux Runtime container, the
+path is `/run/host/usr/lib/xrizer`.
+
 ## Releases
 
 Each workflow run creates a brand-new GitHub Release, tagged
@@ -114,6 +144,7 @@ sha256sum -c vpinball_*.deb.sha256
 sha256sum -c vpinfe_*.deb.sha256
 sha256sum -c vpxconfig_*.deb.sha256
 sha256sum -c wivrn_*.deb.sha256
+sha256sum -c xrizer_*.deb.sha256
 ```
 
 ## Local Builds
@@ -144,4 +175,13 @@ Fetch WiVRn locally:
 ```bash
 sudo apt-get install curl dpkg-dev jq
 OUTDIR="$PWD/dist" scripts/build-wivrn-deb.sh
+```
+
+Build xrizer locally. It builds for the host's architecture only and needs
+Rust 1.85 or newer (e.g. from [rustup](https://rustup.rs)):
+
+```bash
+sudo apt-get install binutils build-essential cmake curl dpkg-dev glslc jq \
+  libclang-dev libvulkan-dev libx11-xcb-dev pkg-config
+OUTDIR="$PWD/dist" scripts/build-xrizer-deb.sh
 ```

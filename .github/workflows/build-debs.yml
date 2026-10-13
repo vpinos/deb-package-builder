@@ -27,6 +27,10 @@ on:
         description: WiVRn (superhac/WiVRn) release tag, or latest
         required: true
         default: latest
+      xrizer_version:
+        description: xrizer (Supreeeme/xrizer) release tag, or latest
+        required: true
+        default: latest
 
 permissions:
   contents: write
@@ -63,6 +67,7 @@ jobs:
           - architectures: amd64, arm64
           - vpxconfig_version: ${{ inputs.vpxconfig_version }}
           - wivrn_version: ${{ inputs.wivrn_version }}
+          - xrizer_version: ${{ inputs.xrizer_version }}
           - package_revision: ${{ inputs.package_revision }}"
 
   vpinball:
@@ -236,3 +241,64 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           RELEASE_TAG: ${{ needs.create-release.outputs.release_tag }}
         run: gh release upload "$RELEASE_TAG" -R "$GITHUB_REPOSITORY" dist/wivrn/*.deb dist/wivrn/*.sha256 --clobber
+
+  xrizer:
+    needs: create-release
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # Built from source on native runners; upstream only ships x86_64.
+          - arch: amd64
+            runner: ubuntu-24.04
+          - arch: arm64
+            runner: ubuntu-24.04-arm
+    runs-on: ${{ matrix.runner }}
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Install xrizer build tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            binutils \
+            build-essential \
+            cmake \
+            curl \
+            dpkg-dev \
+            glslc \
+            jq \
+            libclang-dev \
+            libvulkan-dev \
+            libx11-xcb-dev \
+            pkg-config
+
+      - name: Install Rust toolchain
+        run: |
+          curl -fsSL https://sh.rustup.rs | sh -s -- -y --profile minimal --default-toolchain stable
+          echo "$HOME/.cargo/bin" >> "$GITHUB_PATH"
+
+      - name: Build xrizer .deb from source
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          XRIZER_REPO: Supreeeme/xrizer
+          XRIZER_VERSION: ${{ inputs.xrizer_version }}
+          DEB_ARCH: ${{ matrix.arch }}
+          PACKAGE_REVISION: ${{ inputs.package_revision }}
+          OUTDIR: ${{ github.workspace }}/dist/xrizer
+        run: scripts/build-xrizer-deb.sh
+
+      - name: Generate checksum
+        run: |
+          cd dist/xrizer
+          for deb in *.deb; do
+            sha256sum "$deb" > "$deb.sha256"
+          done
+
+      - name: Upload xrizer package to release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ needs.create-release.outputs.release_tag }}
+        run: gh release upload "$RELEASE_TAG" -R "$GITHUB_REPOSITORY" dist/xrizer/*.deb dist/xrizer/*.sha256 --clobber
