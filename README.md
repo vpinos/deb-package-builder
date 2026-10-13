@@ -114,7 +114,7 @@ source for both architectures. It runs natively on `ubuntu-24.04` (amd64) and
 3. builds it with `cargo xbuild --release`, with the OpenXR loader statically
    linked like upstream's own release builds. Games run inside the Steam Linux
    Runtime container, which can't be relied on to have the host's loader,
-4. installs the runtime to `/usr/lib/xrizer` (`bin/linux64/vrclient.so` on
+4. installs the runtime to `/opt/xrizer` (`bin/linux64/vrclient.so` on
    amd64, `bin/linuxarm64/vrclient.so` on arm64),
 5. sets the `libc6` minimum from the glibc symbol versions the library uses,
 6. builds `xrizer_<version>-<revision>_<arch>.deb`,
@@ -124,11 +124,11 @@ source for both architectures. It runs natively on `ubuntu-24.04` (amd64) and
 The package version is the upstream release tag without the leading `v`, plus
 the Debian revision, e.g. `0.6-1`.
 
-Installing the package doesn't switch OpenVR over to xrizer, because that's a
-per-user setting. Either add `/usr/lib/xrizer` to the `runtime` list in
-`~/.config/openvr/openvrpaths.vrpath`, or launch games with
-`VR_OVERRIDE=/usr/lib/xrizer`. Inside the Steam Linux Runtime container, the
-path is `/run/host/usr/lib/xrizer`.
+`/opt/xrizer` is on WiVRn's default OpenVR compatibility search path
+(`OVR_COMPAT_SEARCH_PATH`), so no per-user setup is needed. When a session
+starts, WiVRn finds xrizer there, writes `~/.config/openvr/openvrpaths.vrpath`,
+and its suggested Steam launch command exposes the path to the Steam Linux
+Runtime container and sets `VR_OVERRIDE`.
 
 ## Releases
 

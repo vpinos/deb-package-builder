@@ -72,12 +72,13 @@ upstream_version="${version#v}"
 upstream_version="$(printf '%s' "$upstream_version" | tr '_' '.' | sed -E 's/[^A-Za-z0-9.+:~]/./g')"
 package_version="${upstream_version}-${revision}"
 
-# The OpenVR runtime directory is the one containing bin/; it goes under /usr
-# so Steam's container still sees it at /run/host/usr.
+# The OpenVR runtime directory is the one containing bin/. /opt/xrizer is on
+# WiVRn's default OVR_COMPAT_SEARCH_PATH, so WiVRn finds it, writes
+# openvrpaths.vrpath, and exposes it to Steam's container on its own.
 pkgroot="$workdir/pkgroot"
 rm -rf "$pkgroot"
-install -d "$pkgroot/DEBIAN" "$pkgroot/usr/lib/xrizer/$platform_dir"
-install -m 0644 "$lib" "$pkgroot/usr/lib/xrizer/$platform_dir/vrclient.so"
+install -d "$pkgroot/DEBIAN" "$pkgroot/opt/xrizer/$platform_dir"
+install -m 0644 "$lib" "$pkgroot/opt/xrizer/$platform_dir/vrclient.so"
 
 # Take the glibc floor from the library itself, since it depends on whichever
 # host it was built on.
@@ -97,10 +98,8 @@ Homepage: https://github.com/Supreeeme/xrizer
 Description: OpenVR implementation on top of OpenXR
  xrizer reimplements OpenVR on top of OpenXR, so OpenVR games can run
  through any OpenXR runtime (such as WiVRn or Monado) without SteamVR.
- This package installs a build of the upstream release to /usr/lib/xrizer.
- Point OpenVR at it by adding that path to the "runtime" list in
- ~/.config/openvr/openvrpaths.vrpath, or with VR_OVERRIDE=/usr/lib/xrizer
- (/run/host/usr/lib/xrizer inside the Steam Linux Runtime).
+ This package installs a build of the upstream release to /opt/xrizer,
+ where WiVRn detects it automatically.
 CONTROL
 
 deb_path="$outdir/xrizer_${package_version}_${arch}.deb"
