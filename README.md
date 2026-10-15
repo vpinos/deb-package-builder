@@ -1,187 +1,180 @@
-# vpinos-deb-repo
+# deb-package-builder
 
-This repository builds Debian packages for VPINOS-related projects and publishes
-the `.deb` files as GitHub Release assets.
+Builds the Debian packages for the upstream software VPinOS ships, and
+attaches the `.deb` files to a GitHub release here. The packages reach VPinOS
+installations once [`vpinos/deb-repo`](https://github.com/vpinos/deb-repo)
+publishes that release into the signed VPinOS apt repository.
 
-The current packages are:
+| Package | From |
+|---|---|
+| `vpinball` | [`superhac/vpinball`](https://github.com/superhac/vpinball) release assets, repackaged |
+| `vpinfe` | [`superhac/vpinfe`](https://github.com/superhac/vpinfe) release assets (slim builds), repackaged |
+| `vpxconfig` | [`vpinos/vpxconfig`](https://github.com/vpinos/vpxconfig) release assets, repackaged |
+| `wivrn` | [`superhac/WiVRn`](https://github.com/superhac/WiVRn) release assets: upstream's own `.deb`s, republished as-is |
+| `xrizer` | [`Supreeeme/xrizer`](https://github.com/Supreeeme/xrizer), built from the tagged source |
 
-- `vpinball`, repackaged from [`superhac/vpinball`](https://github.com/superhac/vpinball)
-  release assets
-- `vpinfe`, repackaged from [`superhac/vpinfe`](https://github.com/superhac/vpinfe)
-  release assets
-- `vpxconfig`, repackaged from [`vpinos/vpxconfig`](https://github.com/vpinos/vpxconfig)
-  release assets
-- `wivrn`, fetched from [`superhac/WiVRn`](https://github.com/superhac/WiVRn)
-  release assets (already-built `.deb`s, republished as-is)
-- `xrizer`, built from [`Supreeeme/xrizer`](https://github.com/Supreeeme/xrizer)
-  release source
+All for amd64 and arm64. GitHub rejects git files over 100 MB but allows much
+larger release assets, so the `.deb`s live in releases, not in git.
 
-GitHub rejects normal git files larger than 100 MB, while GitHub Release assets
-can be much larger. The workflow therefore uploads `.deb` files to a release
-instead of committing them to `pool/`.
+## What gets built: `packages.env`
 
-## Installing with apt
+Every package is pinned to an exact upstream release tag plus our own
+packaging revision, in [`packages.env`](packages.env), the only place these
+are set:
 
-End users should install through the signed apt repository published from these
-builds, not by downloading `.deb` files from releases. See
-[`superhac/vpinos-repo`](https://github.com/superhac/vpinos-repo) for the
-instructions.
+```sh
+VPINFE_TAG=v2.6.6
+VPINFE_REVISION=4
+```
 
-## Build Packages
+The resulting package version is the tag without the leading `v`, a `-`, and
+the revision (`2.6.6-4`). vpinball also gets an epoch (`1:10.8.1-…-4`), and
+WiVRn's version comes from upstream's own `.deb` (no revision).
 
-Run the `Build Debian packages` workflow from the GitHub Actions tab. Each run
-builds `vpinball`, `vpinfe`, `vpxconfig`, `wivrn` and `xrizer`.
+**Only packages whose version isn't published yet are built.**
+[`scripts/plan.sh`](scripts/plan.sh) compares each pinned version with the
+VPinOS apt repo's index:
+
+| Pinned version vs published | Result |
+|---|---|
+| Same | skipped |
+| Not published, or higher | built |
+| **Lower** | error: VPinOS installations only take a higher version |
+| Published for one architecture only | error: fix by hand |
+
+So a run only builds what actually changed, and an unchanged package is never
+rebuilt or re-published.
+
+## Making a change
+
+| You want | Edit `packages.env` |
+|---|---|
+| A new upstream release of a package | Set `<PKG>_TAG` to the new tag, `<PKG>_REVISION=1` |
+| A packaging fix (Depends, launcher, files), same upstream | Raise that package's `<PKG>_REVISION` by 1 |
+| A packaging fix to a build script | Edit `scripts/build-<pkg>-deb.sh` **and** raise that package's revision |
+
+Then commit and push to `master`:
+
+```bash
+git add packages.env scripts/
+git commit -m "vpinfe 2.6.7"
+git push origin master
+```
+
+The push runs **Build Debian packages**:
+
+1. **plan:** decides what to build (the table appears in the run summary).
+   Nothing to build means the run ends there.
+2. **create-release:** a **draft** release `vpinos-debs-<run number>`
+   listing exactly the packages and versions in it.
+3. **One job per selected package**, amd64 + arm64: builds it, then
+   [`scripts/finish-debs.sh`](scripts/finish-debs.sh) checks that the
+   `.deb`'s version is exactly what the plan predicted, writes the
+   `.sha256` sidecar, and uploads it.
+4. **finalize:** makes the release public only if every build succeeded.
+   If anything failed, it stays a draft and can't be published by accident:
+   fix it, delete the draft, push again (or re-run).
+
+Then publish the release to the apt repo (this step doesn't happen
+automatically):
+
+```bash
+gh workflow run update-repo.yml -R vpinos/deb-repo \
+  -f source_repo=vpinos/deb-package-builder -f source_release_tag=vpinos-debs-<N>
+```
+
+The finalize step prints that exact command in the run summary. In the UI:
+`vpinos/deb-repo` → Actions → **Update apt repository** → source
+`vpinos/deb-package-builder`, tag `vpinos-debs-<N>`. Packages not in that
+release stay as they are in the apt repo.
+
+Manual runs: **Actions → Build Debian packages → Run workflow**. Tick **dry
+run** to see only the plan. Check a change before pushing:
+
+```bash
+scripts/plan.sh          # needs gh; prints the plan, exits non-zero on errors
+```
+
+For how this fits with the other VPinOS repos, see `notes/publishing.md` in
+the VPinOS repo.
 
 ## vpinball
 
-The `vpinball` job runs once per architecture (amd64, arm64). For each:
-
-1. reads the selected release from `https://github.com/superhac/vpinball`
-   (`vpinball_version`, default `latest`),
-2. downloads that architecture's Linux BGFX standalone player release asset,
-3. creates a `vpinball` Debian package,
-4. writes it to `dist/`,
-5. generates a `.sha256` checksum sidecar, and
-6. uploads the `.deb` and checksum sidecar to the selected GitHub Release.
-
-`superhac/vpinball` doesn't publish a checksum sidecar for its release assets,
-so the download isn't verified against one (unlike vpinfe and vpxconfig).
-
-The package version is the upstream release tag, e.g. `10.8.1-5958-bb02f4439-1`.
-Bump `package_revision` to repackage the same upstream release.
+Downloads that architecture's Linux BGFX standalone player release asset of
+`VPINBALL_TAG` and packages it into `/opt/vpinball` with a `vpinball`
+launcher. `superhac/vpinball` doesn't publish a checksum sidecar, so the
+download isn't verified against one (unlike vpinfe and vpxconfig).
 
 ## vpinfe
 
-The `vpinfe` job:
-
-1. reads the selected release from `https://github.com/superhac/vpinfe`,
-2. downloads the selected slim Linux release zip and `checksums.txt`,
-3. verifies the zip SHA256,
-4. creates a `vpinfe` Debian package,
-5. writes it to `dist/`,
-6. generates a `.sha256` checksum sidecar, and
-7. uploads the `.deb` and checksum sidecar to the selected GitHub Release.
-
-Only the slim VPinFE release assets are packaged. The default is
-`linux-x64-slim`; `linux-arm64-slim` is available as a workflow input.
+Downloads the slim Linux release zip for the architecture (`linux-x64-slim`,
+`linux-arm64-slim`) of `VPINFE_TAG` and its `checksums.txt`, verifies the
+SHA256, and packages it into `/opt/vpinfe` with a `vpinfe` launcher.
 
 ## vpxconfig
 
-The `vpxconfig` job:
-
-1. reads the selected release from `https://github.com/vpinos/vpxconfig`
-   (`vpxconfig_version`, default `latest`),
-2. downloads the single-file `vpxconfig` release asset and its `.sha256`,
-3. verifies the checksum,
-4. creates an amd64 `vpxconfig` Debian package that installs the executable
-   to `/usr/bin/vpxconfig`,
-5. writes it to `dist/`,
-6. generates a `.sha256` checksum sidecar, and
-7. uploads the `.deb` and checksum sidecar to the selected GitHub Release.
-
-The package version is the upstream release tag, e.g. `0.5.2-1`.
+Downloads the `vpxconfig-linux-<arch>.tar.gz` asset of `VPXCONFIG_TAG` and
+its `.sha256`, verifies it, and installs the executable to
+`/usr/bin/vpxconfig`.
 
 ## wivrn
 
-The `wivrn` job runs once per architecture (amd64, arm64). For each:
-
-1. reads the selected release from `https://github.com/superhac/WiVRn`
-   (`wivrn_version`, default `latest`),
-2. downloads that architecture's `wivrn_*.deb` release asset — already a
-   complete Debian package built by upstream, not a binary or tarball we
-   repackage ourselves,
-3. writes it to `dist/`,
-4. generates a `.sha256` checksum sidecar, and
-5. uploads the `.deb` and checksum sidecar to the selected GitHub Release.
-
-`superhac/WiVRn` doesn't publish a checksum sidecar for its release assets
-either, so the download isn't verified against one. `package_revision` doesn't
-apply to this package, since its Debian revision comes from upstream.
-
+Downloads that architecture's `wivrn_*.deb` from `WIVRN_TAG`: already a
+complete Debian package built by upstream, republished unchanged. Its version
+(and revision) is upstream's. There's no checksum sidecar upstream either.
 **WiVRn's `.deb`s are built for Debian trixie (13)** and depend on package
-names (`libqt6core6t64`, `libarchive13t64`, …) from Debian's 64-bit time_t
-transition, so it needs Debian 13 or newer.
+names from Debian's 64-bit time_t transition (`libqt6core6t64`, …).
 
 ## xrizer
 
-Upstream only publishes an x86_64 build, so the `xrizer` job builds from
-source for both architectures. It runs natively on `ubuntu-24.04` (amd64) and
-`ubuntu-24.04-arm` (arm64) rather than cross-compiling. For each:
+Upstream only publishes an x86_64 build, so xrizer is built from the
+`XRIZER_TAG` source for both architectures, natively on `ubuntu-24.04` and
+`ubuntu-24.04-arm` (no cross-compiling):
 
-1. reads the selected release from `https://github.com/Supreeeme/xrizer`
-   (`xrizer_version`, default `latest`),
-2. downloads that tag's source tarball,
-3. builds it with `cargo xbuild --release`, with the OpenXR loader statically
-   linked like upstream's own release builds. Games run inside the Steam Linux
-   Runtime container, which can't be relied on to have the host's loader,
-4. installs the runtime to `/opt/xrizer` (`bin/linux64/vrclient.so` on
-   amd64, `bin/linuxarm64/vrclient.so` on arm64),
-5. sets the `libc6` minimum from the glibc symbol versions the library uses,
-6. builds `xrizer_<version>-<revision>_<arch>.deb`,
-7. generates a `.sha256` checksum sidecar, and
-8. uploads the `.deb` and checksum sidecar to the selected GitHub Release.
+- `cargo xbuild --release`, with the OpenXR loader statically linked like
+  upstream's own builds (games run inside the Steam Linux Runtime container,
+  which can't be relied on to have the host's loader);
+- installs to `/opt/xrizer` (`bin/linux64/vrclient.so` /
+  `bin/linuxarm64/vrclient.so`);
+- the `libc6` minimum comes from the glibc symbol versions it uses.
 
-The package version is the upstream release tag without the leading `v`, plus
-the Debian revision, e.g. `0.6-1`.
-
-`/opt/xrizer` is on WiVRn's default OpenVR compatibility search path
-(`OVR_COMPAT_SEARCH_PATH`), so no per-user setup is needed. When a session
-starts, WiVRn finds xrizer there, writes `~/.config/openvr/openvrpaths.vrpath`,
-and its suggested Steam launch command exposes the path to the Steam Linux
-Runtime container and sets `VR_OVERRIDE`.
+`/opt/xrizer` is on WiVRn's default OpenVR compatibility search path, so no
+per-user setup is needed: WiVRn finds it, writes
+`~/.config/openvr/openvrpaths.vrpath`, and its suggested Steam launch command
+sets `VR_OVERRIDE`.
 
 ## Releases
 
-Each workflow run creates a brand-new GitHub Release, tagged
-`<release_tag>-<run number>` (e.g. `vpinos-debs-42`), instead of reusing or
-adding to a previous release. Override `release_tag` to change the base
-name used for that run's release.
-
-The uploaded checksum sidecars can be used to verify downloads:
+Each run that builds something creates a new release `vpinos-debs-<run
+number>` containing only the packages built in that run, each with a
+`.deb.sha256` sidecar:
 
 ```bash
-sha256sum -c vpinball_*.deb.sha256
-sha256sum -c vpinfe_*.deb.sha256
-sha256sum -c vpxconfig_*.deb.sha256
-sha256sum -c wivrn_*.deb.sha256
-sha256sum -c xrizer_*.deb.sha256
+sha256sum -c *.deb.sha256
 ```
 
-## Local Builds
+## Local builds
 
-Build VPinball locally:
-
-```bash
-sudo apt-get install curl dpkg-dev jq
-OUTDIR="$PWD/dist" scripts/build-vpinball-deb.sh
-```
-
-Build VPinFE locally:
+The build scripts read the tag and revision from the environment (default:
+`latest` and revision 1). To build exactly what `packages.env` pins:
 
 ```bash
+. ./packages.env
 sudo apt-get install curl dpkg-dev jq unzip
-OUTDIR="$PWD/dist" scripts/build-vpinfe-deb.sh
+VPINBALL_VERSION=$VPINBALL_TAG PACKAGE_REVISION=$VPINBALL_REVISION OUTDIR=$PWD/dist scripts/build-vpinball-deb.sh
+VPINFE_VERSION=$VPINFE_TAG PACKAGE_REVISION=$VPINFE_REVISION OUTDIR=$PWD/dist scripts/build-vpinfe-deb.sh
+VPXCONFIG_VERSION=$VPXCONFIG_TAG PACKAGE_REVISION=$VPXCONFIG_REVISION OUTDIR=$PWD/dist scripts/build-vpxconfig-deb.sh
+WIVRN_VERSION=$WIVRN_TAG OUTDIR=$PWD/dist scripts/build-wivrn-deb.sh
 ```
 
-Build VPXConfig locally:
-
-```bash
-sudo apt-get install curl dpkg-dev jq
-OUTDIR="$PWD/dist" scripts/build-vpxconfig-deb.sh
-```
-
-Fetch WiVRn locally:
-
-```bash
-sudo apt-get install curl dpkg-dev jq
-OUTDIR="$PWD/dist" scripts/build-wivrn-deb.sh
-```
-
-Build xrizer locally. It builds for the host's architecture only and needs
-Rust 1.85 or newer (e.g. from [rustup](https://rustup.rs)):
+xrizer builds for the host's architecture only and needs Rust 1.85 or newer
+(e.g. from [rustup](https://rustup.rs)):
 
 ```bash
 sudo apt-get install binutils build-essential cmake curl dpkg-dev glslc jq \
   libclang-dev libvulkan-dev libx11-xcb-dev pkg-config
-OUTDIR="$PWD/dist" scripts/build-xrizer-deb.sh
+XRIZER_VERSION=$XRIZER_TAG PACKAGE_REVISION=$XRIZER_REVISION OUTDIR=$PWD/dist scripts/build-xrizer-deb.sh
 ```
+
+VPinFE (`VPINFE_TRIPLET=linux-arm64-slim`) and the others (`DEB_ARCH=arm64`)
+can be built for arm64 on an amd64 host; xrizer can't.

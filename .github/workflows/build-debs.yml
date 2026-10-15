@@ -1,36 +1,30 @@
 name: Build Debian packages
 
+# Builds the packages pinned in packages.env -- only the ones whose version
+# isn't in the VPinOS apt repo (vpinos/deb-repo) yet -- and puts them in a
+# new release vpinos-debs-<run number>. scripts/plan.sh decides what to build.
+#
+#   Push to master that changes packages.env, scripts/ or this workflow -> runs
+#   Actions > Build Debian packages > Run workflow                      -> runs
+#     ("dry run" only prints the plan)
+#
+# The release is created as a draft and only made public once every build
+# succeeded, so a half-failed run can never be published by accident. After
+# it's public, publish it: deb-repo > Update apt repository, source_repo
+# vpinos/deb-package-builder, tag vpinos-debs-<run number>.
 on:
+  push:
+    branches: [master]
+    paths:
+      - packages.env
+      - "scripts/**"
+      - .github/workflows/build-debs.yml
   workflow_dispatch:
     inputs:
-      package_revision:
-        description: Debian package revision
-        required: true
-        default: "1"
-      release_tag:
-        description: Base name for the new GitHub Release created by this run
-        required: true
-        default: vpinos-debs
-      vpinball_version:
-        description: VPinball (superhac/vpinball) release tag, or latest
-        required: true
-        default: latest
-      vpinfe_version:
-        description: VPinFE release tag, or latest
-        required: true
-        default: latest
-      vpxconfig_version:
-        description: VPXConfig (vpinos/vpxconfig) release tag, or latest
-        required: true
-        default: latest
-      wivrn_version:
-        description: WiVRn (superhac/WiVRn) release tag, or latest
-        required: true
-        default: latest
-      xrizer_version:
-        description: xrizer (Supreeeme/xrizer) release tag, or latest
-        required: true
-        default: latest
+      dry_run:
+        description: Only show what would be built
+        type: boolean
+        default: false
 
 permissions:
   contents: write
@@ -40,44 +34,66 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
-  create-release:
+  plan:
     runs-on: ubuntu-24.04
     outputs:
-      release_tag: ${{ steps.tag.outputs.release_tag }}
-
+      any: ${{ steps.plan.outputs.any }}
+      build_vpinball: ${{ steps.plan.outputs.build_vpinball }}
+      build_vpinfe: ${{ steps.plan.outputs.build_vpinfe }}
+      build_vpxconfig: ${{ steps.plan.outputs.build_vpxconfig }}
+      build_wivrn: ${{ steps.plan.outputs.build_wivrn }}
+      build_xrizer: ${{ steps.plan.outputs.build_xrizer }}
+      version_vpinball: ${{ steps.plan.outputs.version_vpinball }}
+      version_vpinfe: ${{ steps.plan.outputs.version_vpinfe }}
+      version_vpxconfig: ${{ steps.plan.outputs.version_vpxconfig }}
+      version_wivrn: ${{ steps.plan.outputs.version_wivrn }}
+      version_xrizer: ${{ steps.plan.outputs.version_xrizer }}
+      release_tag: vpinos-debs-${{ github.run_number }}
     steps:
       - name: Check out repository
         uses: actions/checkout@v4
 
-      - name: Compute unique release tag
-        id: tag
-        run: echo "release_tag=${{ inputs.release_tag }}-${{ github.run_number }}" >> "$GITHUB_OUTPUT"
-
-      - name: Create release
+      - name: Plan
+        id: plan
         env:
           GH_TOKEN: ${{ github.token }}
-          RELEASE_TAG: ${{ steps.tag.outputs.release_tag }}
-        run: |
-          gh release create "$RELEASE_TAG" -R "$GITHUB_REPOSITORY" \
-            --title "VPINOS Debian packages ($RELEASE_TAG)" \
-            --notes "Debian package assets built by GitHub Actions.
+        run: scripts/plan.sh
 
-          - vpinball_version: ${{ inputs.vpinball_version }}
-          - vpinfe_version: ${{ inputs.vpinfe_version }}
-          - architectures: amd64, arm64
-          - vpxconfig_version: ${{ inputs.vpxconfig_version }}
-          - wivrn_version: ${{ inputs.wivrn_version }}
-          - xrizer_version: ${{ inputs.xrizer_version }}
-          - package_revision: ${{ inputs.package_revision }}"
+  create-release:
+    needs: plan
+    if: needs.plan.outputs.any == 'true' && github.event.inputs.dry_run != 'true'
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Create draft release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ needs.plan.outputs.release_tag }}
+        run: |
+          {
+            echo "Debian packages built from packages.env at ${GITHUB_SHA::7}."
+            echo
+            [ "${{ needs.plan.outputs.build_vpinball }}" = true ]  && echo "- vpinball ${{ needs.plan.outputs.version_vpinball }}"
+            [ "${{ needs.plan.outputs.build_vpinfe }}" = true ]    && echo "- vpinfe ${{ needs.plan.outputs.version_vpinfe }}"
+            [ "${{ needs.plan.outputs.build_vpxconfig }}" = true ] && echo "- vpxconfig ${{ needs.plan.outputs.version_vpxconfig }}"
+            [ "${{ needs.plan.outputs.build_wivrn }}" = true ]     && echo "- wivrn ${{ needs.plan.outputs.version_wivrn }}"
+            [ "${{ needs.plan.outputs.build_xrizer }}" = true ]    && echo "- xrizer ${{ needs.plan.outputs.version_xrizer }}"
+            echo
+            echo "amd64 + arm64. Publish with vpinos/deb-repo's \"Update apt repository\" (source_repo=vpinos/deb-package-builder, tag $RELEASE_TAG)."
+          } > notes.md
+          gh release create "$RELEASE_TAG" -R "$GITHUB_REPOSITORY" --draft \
+            --target "$GITHUB_SHA" --title "VPINOS Debian packages ($RELEASE_TAG)" --notes-file notes.md
 
   vpinball:
-    needs: create-release
+    needs: [plan, create-release]
+    if: needs.plan.outputs.build_vpinball == 'true' && needs.create-release.result == 'success'
     strategy:
       fail-fast: false
       matrix:
         arch: [amd64, arm64]
     runs-on: ubuntu-24.04
-
     steps:
       - name: Check out repository
         uses: actions/checkout@v4
@@ -85,42 +101,36 @@ jobs:
       - name: Install vpinball packaging tools
         run: |
           sudo apt-get update
-          sudo apt-get install -y \
-            curl \
-            dpkg-dev \
-            jq
+          sudo apt-get install -y curl dpkg-dev jq
 
       - name: Build vpinball .deb from release asset
         env:
           GITHUB_TOKEN: ${{ github.token }}
-          VPINBALL_REPO: superhac/vpinball
-          VPINBALL_VERSION: ${{ inputs.vpinball_version }}
           DEB_ARCH: ${{ matrix.arch }}
-          PACKAGE_REVISION: ${{ inputs.package_revision }}
           OUTDIR: ${{ github.workspace }}/dist/vpinball
-        run: scripts/build-vpinball-deb.sh
-
-      - name: Generate checksum
         run: |
-          cd dist/vpinball
-          for deb in *.deb; do
-            sha256sum "$deb" > "$deb.sha256"
-          done
+          . ./packages.env
+          VPINBALL_VERSION="$VPINBALL_TAG" PACKAGE_REVISION="$VPINBALL_REVISION" scripts/build-vpinball-deb.sh
 
-      - name: Upload vpinball package to release
+      - name: Check version and add checksum
+        env:
+          EXPECTED: ${{ needs.plan.outputs.version_vpinball }}
+        run: scripts/finish-debs.sh dist/vpinball "$EXPECTED"
+
+      - name: Upload to release
         env:
           GH_TOKEN: ${{ github.token }}
-          RELEASE_TAG: ${{ needs.create-release.outputs.release_tag }}
+          RELEASE_TAG: ${{ needs.plan.outputs.release_tag }}
         run: gh release upload "$RELEASE_TAG" -R "$GITHUB_REPOSITORY" dist/vpinball/*.deb dist/vpinball/*.sha256 --clobber
 
   vpinfe:
-    needs: create-release
+    needs: [plan, create-release]
+    if: needs.plan.outputs.build_vpinfe == 'true' && needs.create-release.result == 'success'
     strategy:
       fail-fast: false
       matrix:
         triplet: [linux-x64-slim, linux-arm64-slim]
     runs-on: ubuntu-24.04
-
     steps:
       - name: Check out repository
         uses: actions/checkout@v4
@@ -128,43 +138,36 @@ jobs:
       - name: Install vpinfe packaging tools
         run: |
           sudo apt-get update
-          sudo apt-get install -y \
-            curl \
-            dpkg-dev \
-            jq \
-            unzip
+          sudo apt-get install -y curl dpkg-dev jq unzip
 
       - name: Build vpinfe .deb from release asset
         env:
           GITHUB_TOKEN: ${{ github.token }}
-          VPINFE_REPO: superhac/vpinfe
-          VPINFE_VERSION: ${{ inputs.vpinfe_version }}
           VPINFE_TRIPLET: ${{ matrix.triplet }}
-          PACKAGE_REVISION: ${{ inputs.package_revision }}
           OUTDIR: ${{ github.workspace }}/dist/vpinfe
-        run: scripts/build-vpinfe-deb.sh
-
-      - name: Generate checksum
         run: |
-          cd dist/vpinfe
-          for deb in *.deb; do
-            sha256sum "$deb" > "$deb.sha256"
-          done
+          . ./packages.env
+          VPINFE_VERSION="$VPINFE_TAG" PACKAGE_REVISION="$VPINFE_REVISION" scripts/build-vpinfe-deb.sh
 
-      - name: Upload vpinfe package to release
+      - name: Check version and add checksum
+        env:
+          EXPECTED: ${{ needs.plan.outputs.version_vpinfe }}
+        run: scripts/finish-debs.sh dist/vpinfe "$EXPECTED"
+
+      - name: Upload to release
         env:
           GH_TOKEN: ${{ github.token }}
-          RELEASE_TAG: ${{ needs.create-release.outputs.release_tag }}
+          RELEASE_TAG: ${{ needs.plan.outputs.release_tag }}
         run: gh release upload "$RELEASE_TAG" -R "$GITHUB_REPOSITORY" dist/vpinfe/*.deb dist/vpinfe/*.sha256 --clobber
 
   vpxconfig:
-    needs: create-release
+    needs: [plan, create-release]
+    if: needs.plan.outputs.build_vpxconfig == 'true' && needs.create-release.result == 'success'
     strategy:
       fail-fast: false
       matrix:
         arch: [amd64, arm64]
     runs-on: ubuntu-24.04
-
     steps:
       - name: Check out repository
         uses: actions/checkout@v4
@@ -172,42 +175,36 @@ jobs:
       - name: Install vpxconfig packaging tools
         run: |
           sudo apt-get update
-          sudo apt-get install -y \
-            curl \
-            dpkg-dev \
-            jq
+          sudo apt-get install -y curl dpkg-dev jq
 
       - name: Build vpxconfig .deb from release asset
         env:
           GITHUB_TOKEN: ${{ github.token }}
-          VPXCONFIG_REPO: vpinos/vpxconfig
-          VPXCONFIG_VERSION: ${{ inputs.vpxconfig_version }}
           DEB_ARCH: ${{ matrix.arch }}
-          PACKAGE_REVISION: ${{ inputs.package_revision }}
           OUTDIR: ${{ github.workspace }}/dist/vpxconfig
-        run: scripts/build-vpxconfig-deb.sh
-
-      - name: Generate checksum
         run: |
-          cd dist/vpxconfig
-          for deb in *.deb; do
-            sha256sum "$deb" > "$deb.sha256"
-          done
+          . ./packages.env
+          VPXCONFIG_VERSION="$VPXCONFIG_TAG" PACKAGE_REVISION="$VPXCONFIG_REVISION" scripts/build-vpxconfig-deb.sh
 
-      - name: Upload vpxconfig package to release
+      - name: Check version and add checksum
+        env:
+          EXPECTED: ${{ needs.plan.outputs.version_vpxconfig }}
+        run: scripts/finish-debs.sh dist/vpxconfig "$EXPECTED"
+
+      - name: Upload to release
         env:
           GH_TOKEN: ${{ github.token }}
-          RELEASE_TAG: ${{ needs.create-release.outputs.release_tag }}
+          RELEASE_TAG: ${{ needs.plan.outputs.release_tag }}
         run: gh release upload "$RELEASE_TAG" -R "$GITHUB_REPOSITORY" dist/vpxconfig/*.deb dist/vpxconfig/*.sha256 --clobber
 
   wivrn:
-    needs: create-release
+    needs: [plan, create-release]
+    if: needs.plan.outputs.build_wivrn == 'true' && needs.create-release.result == 'success'
     strategy:
       fail-fast: false
       matrix:
         arch: [amd64, arm64]
     runs-on: ubuntu-24.04
-
     steps:
       - name: Check out repository
         uses: actions/checkout@v4
@@ -215,35 +212,31 @@ jobs:
       - name: Install wivrn packaging tools
         run: |
           sudo apt-get update
-          sudo apt-get install -y \
-            curl \
-            dpkg-dev \
-            jq
+          sudo apt-get install -y curl dpkg-dev jq
 
       - name: Fetch wivrn .deb from release asset
         env:
           GITHUB_TOKEN: ${{ github.token }}
-          WIVRN_REPO: superhac/WiVRn
-          WIVRN_VERSION: ${{ inputs.wivrn_version }}
           DEB_ARCH: ${{ matrix.arch }}
           OUTDIR: ${{ github.workspace }}/dist/wivrn
-        run: scripts/build-wivrn-deb.sh
-
-      - name: Generate checksum
         run: |
-          cd dist/wivrn
-          for deb in *.deb; do
-            sha256sum "$deb" > "$deb.sha256"
-          done
+          . ./packages.env
+          WIVRN_VERSION="$WIVRN_TAG" scripts/build-wivrn-deb.sh
 
-      - name: Upload wivrn package to release
+      - name: Check version and add checksum
+        env:
+          EXPECTED: ${{ needs.plan.outputs.version_wivrn }}
+        run: scripts/finish-debs.sh dist/wivrn "$EXPECTED"
+
+      - name: Upload to release
         env:
           GH_TOKEN: ${{ github.token }}
-          RELEASE_TAG: ${{ needs.create-release.outputs.release_tag }}
+          RELEASE_TAG: ${{ needs.plan.outputs.release_tag }}
         run: gh release upload "$RELEASE_TAG" -R "$GITHUB_REPOSITORY" dist/wivrn/*.deb dist/wivrn/*.sha256 --clobber
 
   xrizer:
-    needs: create-release
+    needs: [plan, create-release]
+    if: needs.plan.outputs.build_xrizer == 'true' && needs.create-release.result == 'success'
     strategy:
       fail-fast: false
       matrix:
@@ -254,7 +247,6 @@ jobs:
           - arch: arm64
             runner: ubuntu-24.04-arm
     runs-on: ${{ matrix.runner }}
-
     steps:
       - name: Check out repository
         uses: actions/checkout@v4
@@ -263,17 +255,8 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y \
-            binutils \
-            build-essential \
-            cmake \
-            curl \
-            dpkg-dev \
-            glslc \
-            jq \
-            libclang-dev \
-            libvulkan-dev \
-            libx11-xcb-dev \
-            pkg-config
+            binutils build-essential cmake curl dpkg-dev glslc jq \
+            libclang-dev libvulkan-dev libx11-xcb-dev pkg-config
 
       - name: Install Rust toolchain
         run: |
@@ -283,22 +266,52 @@ jobs:
       - name: Build xrizer .deb from source
         env:
           GITHUB_TOKEN: ${{ github.token }}
-          XRIZER_REPO: Supreeeme/xrizer
-          XRIZER_VERSION: ${{ inputs.xrizer_version }}
           DEB_ARCH: ${{ matrix.arch }}
-          PACKAGE_REVISION: ${{ inputs.package_revision }}
           OUTDIR: ${{ github.workspace }}/dist/xrizer
-        run: scripts/build-xrizer-deb.sh
-
-      - name: Generate checksum
         run: |
-          cd dist/xrizer
-          for deb in *.deb; do
-            sha256sum "$deb" > "$deb.sha256"
-          done
+          . ./packages.env
+          XRIZER_VERSION="$XRIZER_TAG" PACKAGE_REVISION="$XRIZER_REVISION" scripts/build-xrizer-deb.sh
 
-      - name: Upload xrizer package to release
+      - name: Check version and add checksum
+        env:
+          EXPECTED: ${{ needs.plan.outputs.version_xrizer }}
+        run: scripts/finish-debs.sh dist/xrizer "$EXPECTED"
+
+      - name: Upload to release
         env:
           GH_TOKEN: ${{ github.token }}
-          RELEASE_TAG: ${{ needs.create-release.outputs.release_tag }}
+          RELEASE_TAG: ${{ needs.plan.outputs.release_tag }}
         run: gh release upload "$RELEASE_TAG" -R "$GITHUB_REPOSITORY" dist/xrizer/*.deb dist/xrizer/*.sha256 --clobber
+
+  # Publishes the draft only if every selected build succeeded.
+  finalize:
+    needs: [plan, create-release, vpinball, vpinfe, vpxconfig, wivrn, xrizer]
+    if: always() && needs.create-release.result == 'success'
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Make the release public, or leave it as a draft
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ needs.plan.outputs.release_tag }}
+          RESULTS: >-
+            vpinball=${{ needs.vpinball.result }}
+            vpinfe=${{ needs.vpinfe.result }}
+            vpxconfig=${{ needs.vpxconfig.result }}
+            wivrn=${{ needs.wivrn.result }}
+            xrizer=${{ needs.xrizer.result }}
+        run: |
+          echo "Build results: $RESULTS"
+          case " $RESULTS " in
+            *=failure*|*=cancelled*)
+              echo "::error::A build failed. $RELEASE_TAG stays a draft (nothing to publish). Fix it, delete the draft, and run again."
+              exit 1
+              ;;
+          esac
+          gh release edit "$RELEASE_TAG" -R "$GITHUB_REPOSITORY" --draft=false
+          {
+            echo "Released **$RELEASE_TAG**. Publish it to the apt repo:"
+            echo
+            echo '```'
+            echo "gh workflow run update-repo.yml -R vpinos/deb-repo -f source_repo=vpinos/deb-package-builder -f source_release_tag=$RELEASE_TAG"
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
