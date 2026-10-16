@@ -6,6 +6,11 @@
 # apt repo (vpinos/deb-repo, release "apt") already publishes. Nothing is
 # downloaded except the apt index and the WiVRn release metadata.
 #
+# Packages are built for amd64 and arm64, except vpx-editor (amd64 only:
+# upstream has no arm64 build). A package name's "-" becomes "_" in its
+# packages.env variables and $GITHUB_OUTPUT keys (vpx-editor ->
+# VPX_EDITOR_TAG, build_vpx_editor).
+#
 #   same version published (all archs)  -> skip
 #   not published / pinned is newer     -> build
 #   pinned is OLDER than published      -> error: installations would never
@@ -26,7 +31,12 @@ root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 
 apt_repo="${APT_REPO:-vpinos/deb-repo}"
 apt_tag="${APT_TAG:-apt}"
-archs="amd64 arm64"
+archs_for() { # <pkg>
+  case "$1" in
+    vpx-editor) echo "amd64" ;;
+    *) echo "amd64 arm64" ;;
+  esac
+}
 
 command -v gh >/dev/null || { echo "gh is required." >&2; exit 1; }
 command -v dpkg >/dev/null || { echo "dpkg is required." >&2; exit 1; }
@@ -45,6 +55,12 @@ expected_version() { # <pkg> <arch>
       # Upstream's own .deb: wivrn_<version>_<arch>.deb
       gh release view "$WIVRN_TAG" -R superhac/WiVRn --json assets -q '.assets[].name' \
         | sed -n "s/^wivrn_\(.*\)_$2\.deb\$/\1/p" | head -n1
+      ;;
+    vpx-editor)
+      # Upstream's own .deb, whose Version is the tag without the "v" (its
+      # asset name adds a build number and commit, which the Version
+      # doesn't). Not downloaded here (~500 MB); finish-debs.sh checks it.
+      echo "$(norm "${VPX_EDITOR_TAG#v}")"
       ;;
   esac
 }
@@ -68,19 +84,20 @@ summary "| Package | Pinned | Version | Published | Action |"
 summary "|---|---|---|---|---|"
 errors=0
 any=false
-for pkg in vpinball vpinfe vpxconfig wivrn xrizer; do
-  tagvar="${pkg^^}_TAG"
+for pkg in vpinball vpinfe vpxconfig wivrn xrizer vpx-editor; do
+  key="${pkg//-/_}"
+  tagvar="${key^^}_TAG"
   tag="${!tagvar}"
   present=0; build=0; bad=""
   version=""
   pubs=""
-  for arch in $archs; do
+  for arch in $(archs_for "$pkg"); do
     want="$(expected_version "$pkg" "$arch")"
     if [[ -z "$want" ]]; then
       bad="no $arch .deb in $tag"; break
     fi
     if [[ -n "$version" && "$want" != "$version" ]]; then
-      bad="amd64/arm64 versions differ ($version vs $want)"; break
+      bad="architecture versions differ ($version vs $want)"; break
     fi
     version="$want"
     have="$(published_version "$pkg" "$arch")"
@@ -97,13 +114,13 @@ for pkg in vpinball vpinfe vpxconfig wivrn xrizer; do
     bad="published for some architectures only; check the apt repo by hand"
   fi
   if [[ -n "$bad" ]]; then
-    action="**ERROR:** $bad"; errors=$((errors + 1)); out "build_$pkg=false"
+    action="**ERROR:** $bad"; errors=$((errors + 1)); out "build_$key=false"
   elif [[ $build -gt 0 ]]; then
-    action="**build**"; any=true; out "build_$pkg=true"
+    action="**build**"; any=true; out "build_$key=true"
   else
-    action="skip (already published)"; out "build_$pkg=false"
+    action="skip (already published)"; out "build_$key=false"
   fi
-  out "version_$pkg=$version"
+  out "version_$key=$version"
   summary "| $pkg | \`$tag\` | \`${version:-?}\` | $pubs | $action |"
 done
 out "any=$any"

@@ -43,11 +43,13 @@ jobs:
       build_vpxconfig: ${{ steps.plan.outputs.build_vpxconfig }}
       build_wivrn: ${{ steps.plan.outputs.build_wivrn }}
       build_xrizer: ${{ steps.plan.outputs.build_xrizer }}
+      build_vpx_editor: ${{ steps.plan.outputs.build_vpx_editor }}
       version_vpinball: ${{ steps.plan.outputs.version_vpinball }}
       version_vpinfe: ${{ steps.plan.outputs.version_vpinfe }}
       version_vpxconfig: ${{ steps.plan.outputs.version_vpxconfig }}
       version_wivrn: ${{ steps.plan.outputs.version_wivrn }}
       version_xrizer: ${{ steps.plan.outputs.version_xrizer }}
+      version_vpx_editor: ${{ steps.plan.outputs.version_vpx_editor }}
       release_tag: vpinos-debs-${{ github.run_number }}
     steps:
       - name: Check out repository
@@ -80,8 +82,9 @@ jobs:
             [ "${{ needs.plan.outputs.build_vpxconfig }}" = true ] && echo "- vpxconfig ${{ needs.plan.outputs.version_vpxconfig }}"
             [ "${{ needs.plan.outputs.build_wivrn }}" = true ]     && echo "- wivrn ${{ needs.plan.outputs.version_wivrn }}"
             [ "${{ needs.plan.outputs.build_xrizer }}" = true ]    && echo "- xrizer ${{ needs.plan.outputs.version_xrizer }}"
+            [ "${{ needs.plan.outputs.build_vpx_editor }}" = true ] && echo "- vpx-editor ${{ needs.plan.outputs.version_vpx_editor }} (amd64 only)"
             echo
-            echo "amd64 + arm64. Publish with vpinos/deb-repo's \"Update apt repository\" (source_repo=vpinos/deb-package-builder, tag $RELEASE_TAG)."
+            echo "amd64 + arm64 unless noted. Publish with vpinos/deb-repo's \"Update apt repository\" (source_repo=vpinos/deb-package-builder, tag $RELEASE_TAG)."
           } > notes.md
           gh release create "$RELEASE_TAG" -R "$GITHUB_REPOSITORY" --draft \
             --target "$GITHUB_SHA" --title "VPINOS Debian packages ($RELEASE_TAG)" --notes-file notes.md
@@ -283,9 +286,47 @@ jobs:
           RELEASE_TAG: ${{ needs.plan.outputs.release_tag }}
         run: gh release upload "$RELEASE_TAG" -R "$GITHUB_REPOSITORY" dist/xrizer/*.deb dist/xrizer/*.sha256 --clobber
 
+  vpx-editor:
+    needs: [plan, create-release]
+    if: needs.plan.outputs.build_vpx_editor == 'true' && needs.create-release.result == 'success'
+    strategy:
+      fail-fast: false
+      matrix:
+        # Upstream only publishes a Linux x64 build.
+        arch: [amd64]
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Install vpx-editor packaging tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y curl dpkg-dev jq
+
+      - name: Fetch vpx-editor .deb from release asset
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          DEB_ARCH: ${{ matrix.arch }}
+          OUTDIR: ${{ github.workspace }}/dist/vpx-editor
+        run: |
+          . ./packages.env
+          VPX_EDITOR_VERSION="$VPX_EDITOR_TAG" scripts/build-vpx-editor-deb.sh
+
+      - name: Check version and add checksum
+        env:
+          EXPECTED: ${{ needs.plan.outputs.version_vpx_editor }}
+        run: scripts/finish-debs.sh dist/vpx-editor "$EXPECTED"
+
+      - name: Upload to release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ needs.plan.outputs.release_tag }}
+        run: gh release upload "$RELEASE_TAG" -R "$GITHUB_REPOSITORY" dist/vpx-editor/*.deb dist/vpx-editor/*.sha256 --clobber
+
   # Publishes the draft only if every selected build succeeded.
   finalize:
-    needs: [plan, create-release, vpinball, vpinfe, vpxconfig, wivrn, xrizer]
+    needs: [plan, create-release, vpinball, vpinfe, vpxconfig, wivrn, xrizer, vpx-editor]
     if: always() && needs.create-release.result == 'success'
     runs-on: ubuntu-24.04
     steps:
@@ -299,6 +340,7 @@ jobs:
             vpxconfig=${{ needs.vpxconfig.result }}
             wivrn=${{ needs.wivrn.result }}
             xrizer=${{ needs.xrizer.result }}
+            vpx-editor=${{ needs.vpx-editor.result }}
         run: |
           echo "Build results: $RESULTS"
           case " $RESULTS " in

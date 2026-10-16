@@ -12,8 +12,9 @@ publishes that release into the signed VPinOS apt repository.
 | `vpxconfig` | [`vpinos/vpxconfig`](https://github.com/vpinos/vpxconfig) release assets, repackaged |
 | `wivrn` | [`superhac/WiVRn`](https://github.com/superhac/WiVRn) release assets: upstream's own `.deb`s, republished as-is |
 | `xrizer` | [`Supreeeme/xrizer`](https://github.com/Supreeeme/xrizer), built from the tagged source |
+| `vpx-editor` | [`jsm174/vpx-editor`](https://github.com/jsm174/vpx-editor) release assets: upstream's own `.deb`, republished as-is |
 
-All for amd64 and arm64. GitHub rejects git files over 100 MB but allows much
+All for amd64 and arm64, except `vpx-editor` (amd64 only). GitHub rejects git files over 100 MB but allows much
 larger release assets, so the `.deb`s live in releases, not in git.
 
 ## What gets built: `packages.env`
@@ -29,7 +30,7 @@ VPINFE_REVISION=4
 
 The resulting package version is the tag without the leading `v`, a `-`, and
 the revision (`2.6.6-4`). vpinball also gets an epoch (`1:10.8.1-…-4`), and
-WiVRn's version comes from upstream's own `.deb` (no revision).
+WiVRn's and vpx-editor's versions come from upstream's own `.deb` (no revision).
 
 **Only packages whose version isn't published yet are built.**
 [`scripts/plan.sh`](scripts/plan.sh) compares each pinned version with the
@@ -125,6 +126,16 @@ complete Debian package built by upstream, republished unchanged. Its version
 **WiVRn's `.deb`s are built for Debian trixie (13)** and depend on package
 names from Debian's 64-bit time_t transition (`libqt6core6t64`, …).
 
+## vpx-editor
+
+Downloads the `vpx-editor-linux-x64-*.deb` asset of `VPX_EDITOR_TAG`: a
+complete Debian package of the Electron app (`/usr/lib/vpx-editor`,
+`/usr/bin/vpx-editor`), republished unchanged. **amd64 only:** upstream
+doesn't publish an arm64 Linux build. Its version is upstream's (`0.9.2`,
+the tag without the `v`; the build number and commit in the asset name
+aren't part of it), so re-publishing a fixed build under the same tag needs
+a new tag upstream. There's no checksum sidecar upstream either.
+
 ## xrizer
 
 Upstream only publishes an x86_64 build, so xrizer is built from the
@@ -165,6 +176,7 @@ VPINBALL_VERSION=$VPINBALL_TAG PACKAGE_REVISION=$VPINBALL_REVISION OUTDIR=$PWD/d
 VPINFE_VERSION=$VPINFE_TAG PACKAGE_REVISION=$VPINFE_REVISION OUTDIR=$PWD/dist scripts/build-vpinfe-deb.sh
 VPXCONFIG_VERSION=$VPXCONFIG_TAG PACKAGE_REVISION=$VPXCONFIG_REVISION OUTDIR=$PWD/dist scripts/build-vpxconfig-deb.sh
 WIVRN_VERSION=$WIVRN_TAG OUTDIR=$PWD/dist scripts/build-wivrn-deb.sh
+VPX_EDITOR_VERSION=$VPX_EDITOR_TAG OUTDIR=$PWD/dist scripts/build-vpx-editor-deb.sh   # amd64 only
 ```
 
 xrizer builds for the host's architecture only and needs Rust 1.85 or newer
