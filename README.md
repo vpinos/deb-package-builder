@@ -18,6 +18,17 @@ publishes that release into the signed VPinOS apt repository.
 All for amd64 and arm64, except `vpx-editor` (amd64 only). GitHub rejects git files over 100 MB but allows much
 larger release assets, so the `.deb`s live in releases, not in git.
 
+## Checking for upstream updates
+
+```bash
+scripts/check-upstream.sh
+```
+
+Read-only. For each package it shows the pinned tag next to upstream's
+latest release (pre-releases are only noted) and marks the ones that have a
+newer release. For vpxtool, which is pinned to `latest`, it compares with
+the version in the apt repo instead.
+
 ## What gets built: `packages.env`
 
 Every package is pinned to an exact upstream release tag (except vpxtool,
