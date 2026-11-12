@@ -44,12 +44,15 @@ jobs:
       build_wivrn: ${{ steps.plan.outputs.build_wivrn }}
       build_xrizer: ${{ steps.plan.outputs.build_xrizer }}
       build_vpx_editor: ${{ steps.plan.outputs.build_vpx_editor }}
+      build_vpxtool: ${{ steps.plan.outputs.build_vpxtool }}
       version_vpinball: ${{ steps.plan.outputs.version_vpinball }}
       version_vpinfe: ${{ steps.plan.outputs.version_vpinfe }}
       version_vpxconfig: ${{ steps.plan.outputs.version_vpxconfig }}
       version_wivrn: ${{ steps.plan.outputs.version_wivrn }}
       version_xrizer: ${{ steps.plan.outputs.version_xrizer }}
       version_vpx_editor: ${{ steps.plan.outputs.version_vpx_editor }}
+      version_vpxtool: ${{ steps.plan.outputs.version_vpxtool }}
+      tag_vpxtool: ${{ steps.plan.outputs.tag_vpxtool }}
       release_tag: vpinos-debs-${{ github.run_number }}
     steps:
       - name: Check out repository
@@ -83,6 +86,7 @@ jobs:
             [ "${{ needs.plan.outputs.build_wivrn }}" = true ]     && echo "- wivrn ${{ needs.plan.outputs.version_wivrn }}"
             [ "${{ needs.plan.outputs.build_xrizer }}" = true ]    && echo "- xrizer ${{ needs.plan.outputs.version_xrizer }}"
             [ "${{ needs.plan.outputs.build_vpx_editor }}" = true ] && echo "- vpx-editor ${{ needs.plan.outputs.version_vpx_editor }} (amd64 only)"
+            [ "${{ needs.plan.outputs.build_vpxtool }}" = true ]   && echo "- vpxtool ${{ needs.plan.outputs.version_vpxtool }}"
             echo
             echo "amd64 + arm64 unless noted. Publish with vpinos/deb-repo's \"Update apt repository\" (source_repo=vpinos/deb-package-builder, tag $RELEASE_TAG)."
           } > notes.md
@@ -324,9 +328,48 @@ jobs:
           RELEASE_TAG: ${{ needs.plan.outputs.release_tag }}
         run: gh release upload "$RELEASE_TAG" -R "$GITHUB_REPOSITORY" dist/vpx-editor/*.deb dist/vpx-editor/*.sha256 --clobber
 
+  vpxtool:
+    needs: [plan, create-release]
+    if: needs.plan.outputs.build_vpxtool == 'true' && needs.create-release.result == 'success'
+    strategy:
+      fail-fast: false
+      matrix:
+        arch: [amd64, arm64]
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Install vpxtool packaging tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y binutils curl dpkg-dev jq
+
+      - name: Build vpxtool .deb from release asset
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          DEB_ARCH: ${{ matrix.arch }}
+          OUTDIR: ${{ github.workspace }}/dist/vpxtool
+          # The tag plan.sh resolved (VPXTOOL_TAG may be "latest").
+          VPXTOOL_VERSION: ${{ needs.plan.outputs.tag_vpxtool }}
+        run: |
+          . ./packages.env
+          PACKAGE_REVISION="$VPXTOOL_REVISION" scripts/build-vpxtool-deb.sh
+
+      - name: Check version and add checksum
+        env:
+          EXPECTED: ${{ needs.plan.outputs.version_vpxtool }}
+        run: scripts/finish-debs.sh dist/vpxtool "$EXPECTED"
+
+      - name: Upload to release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ needs.plan.outputs.release_tag }}
+        run: gh release upload "$RELEASE_TAG" -R "$GITHUB_REPOSITORY" dist/vpxtool/*.deb dist/vpxtool/*.sha256 --clobber
+
   # Publishes the draft only if every selected build succeeded.
   finalize:
-    needs: [plan, create-release, vpinball, vpinfe, vpxconfig, wivrn, xrizer, vpx-editor]
+    needs: [plan, create-release, vpinball, vpinfe, vpxconfig, wivrn, xrizer, vpx-editor, vpxtool]
     if: always() && needs.create-release.result == 'success'
     runs-on: ubuntu-24.04
     steps:
@@ -341,6 +384,7 @@ jobs:
             wivrn=${{ needs.wivrn.result }}
             xrizer=${{ needs.xrizer.result }}
             vpx-editor=${{ needs.vpx-editor.result }}
+            vpxtool=${{ needs.vpxtool.result }}
         run: |
           echo "Build results: $RESULTS"
           case " $RESULTS " in

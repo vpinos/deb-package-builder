@@ -13,14 +13,15 @@ publishes that release into the signed VPinOS apt repository.
 | `wivrn` | [`superhac/WiVRn`](https://github.com/superhac/WiVRn) release assets: upstream's own `.deb`s, republished as-is |
 | `xrizer` | [`Supreeeme/xrizer`](https://github.com/Supreeeme/xrizer), built from the tagged source |
 | `vpx-editor` | [`jsm174/vpx-editor`](https://github.com/jsm174/vpx-editor) release assets: upstream's own `.deb`, republished as-is |
+| `vpxtool` | [`francisdb/vpxtool`](https://github.com/francisdb/vpxtool) release assets (static binaries), repackaged; follows upstream's **latest** release |
 
 All for amd64 and arm64, except `vpx-editor` (amd64 only). GitHub rejects git files over 100 MB but allows much
 larger release assets, so the `.deb`s live in releases, not in git.
 
 ## What gets built: `packages.env`
 
-Every package is pinned to an exact upstream release tag plus our own
-packaging revision, in [`packages.env`](packages.env), the only place these
+Every package is pinned to an exact upstream release tag (except vpxtool,
+see below) plus our own packaging revision, in [`packages.env`](packages.env), the only place these
 are set:
 
 ```sh
@@ -136,6 +137,20 @@ the tag without the `v`; the build number and commit in the asset name
 aren't part of it), so re-publishing a fixed build under the same tag needs
 a new tag upstream. There's no checksum sidecar upstream either.
 
+## vpxtool
+
+`VPXTOOL_TAG=latest`: `scripts/plan.sh` resolves it to upstream's current
+latest release and passes that tag to the build jobs, so **any run** of
+Build Debian packages (a push, or Run workflow by hand) builds a new vpxtool
+release if one exists. Nothing is built until something triggers a run.
+Set an exact tag (`VPXTOOL_TAG=v0.40.0`) to pin it instead.
+
+Downloads `vpxtool-linux-x86_64-<tag>.tar.gz` / `vpxtool-linux-aarch64-<tag>.tar.gz`
+(a single statically linked executable, no library dependencies) and
+installs it as `/usr/bin/vpxtool`. Version `<tag>-<revision>`. The revision
+only has to go up for a packaging fix and can stay raised across new tags.
+No checksum sidecar upstream; the script checks the ELF machine type.
+
 ## xrizer
 
 Upstream only publishes an x86_64 build, so xrizer is built from the
@@ -177,6 +192,7 @@ VPINFE_VERSION=$VPINFE_TAG PACKAGE_REVISION=$VPINFE_REVISION OUTDIR=$PWD/dist sc
 VPXCONFIG_VERSION=$VPXCONFIG_TAG PACKAGE_REVISION=$VPXCONFIG_REVISION OUTDIR=$PWD/dist scripts/build-vpxconfig-deb.sh
 WIVRN_VERSION=$WIVRN_TAG OUTDIR=$PWD/dist scripts/build-wivrn-deb.sh
 VPX_EDITOR_VERSION=$VPX_EDITOR_TAG OUTDIR=$PWD/dist scripts/build-vpx-editor-deb.sh   # amd64 only
+VPXTOOL_VERSION=$VPXTOOL_TAG PACKAGE_REVISION=$VPXTOOL_REVISION OUTDIR=$PWD/dist scripts/build-vpxtool-deb.sh   # needs binutils
 ```
 
 xrizer builds for the host's architecture only and needs Rust 1.85 or newer

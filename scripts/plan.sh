@@ -18,8 +18,13 @@
 #   published for some archs only       -> error: fix by hand
 #
 # Prints a table (also to $GITHUB_STEP_SUMMARY), and in GitHub Actions writes
-# build_<pkg>=true|false, version_<pkg>=<version> and any=true|false to
-# $GITHUB_OUTPUT. Exits non-zero on any error. Runs locally too (needs gh).
+# build_<pkg>=true|false, version_<pkg>=<version>, tag_<pkg>=<tag> and
+# any=true|false to $GITHUB_OUTPUT.
+#
+# A <PKG>_TAG of "latest" (vpxtool uses it) is resolved here to upstream's
+# current latest release tag; the build jobs get that resolved tag through
+# tag_<pkg>, so a release published mid-run can't make plan and build differ.
+# Exits non-zero on any error. Runs locally too (needs gh).
 #
 # The version formulas must match scripts/build-*-deb.sh; the workflow checks
 # every built .deb against the version planned here.
@@ -51,6 +56,7 @@ expected_version() { # <pkg> <arch>
     vpinfe)    echo "$(norm "${VPINFE_TAG#v}")-${VPINFE_REVISION}" ;;
     vpxconfig) echo "$(norm "${VPXCONFIG_TAG#v}")-${VPXCONFIG_REVISION}" ;;
     xrizer)    echo "$(norm "${XRIZER_TAG#v}")-${XRIZER_REVISION}" ;;
+    vpxtool)   echo "$(norm "${VPXTOOL_TAG#v}")-${VPXTOOL_REVISION}" ;;
     wivrn)
       # Upstream's own .deb: wivrn_<version>_<arch>.deb
       gh release view "$WIVRN_TAG" -R superhac/WiVRn --json assets -q '.assets[].name' \
@@ -64,6 +70,22 @@ expected_version() { # <pkg> <arch>
       ;;
   esac
 }
+
+# Upstream repo per package, for resolving a "latest" tag.
+upstream_repo() {
+  case "$1" in
+    vpxtool) echo "${VPXTOOL_REPO:-francisdb/vpxtool}" ;;
+    *) return 1 ;;
+  esac
+}
+for pkg in vpxtool; do
+  tagvar="${pkg^^}_TAG"
+  if [[ "${!tagvar}" == "latest" ]]; then
+    resolved="$(gh release view -R "$(upstream_repo "$pkg")" --json tagName -q .tagName)"
+    [[ -n "$resolved" ]] || { echo "Could not resolve the latest $pkg release." >&2; exit 1; }
+    printf -v "$tagvar" '%s' "$resolved"
+  fi
+done
 
 packages_file="$(mktemp)"
 trap 'rm -f "$packages_file"' EXIT
@@ -84,7 +106,7 @@ summary "| Package | Pinned | Version | Published | Action |"
 summary "|---|---|---|---|---|"
 errors=0
 any=false
-for pkg in vpinball vpinfe vpxconfig wivrn xrizer vpx-editor; do
+for pkg in vpinball vpinfe vpxconfig wivrn xrizer vpx-editor vpxtool; do
   key="${pkg//-/_}"
   tagvar="${key^^}_TAG"
   tag="${!tagvar}"
@@ -121,6 +143,7 @@ for pkg in vpinball vpinfe vpxconfig wivrn xrizer vpx-editor; do
     action="skip (already published)"; out "build_$key=false"
   fi
   out "version_$key=$version"
+  out "tag_$key=$tag"
   summary "| $pkg | \`$tag\` | \`${version:-?}\` | $pubs | $action |"
 done
 out "any=$any"
