@@ -14,8 +14,9 @@ publishes that release into the signed VPinOS apt repository.
 | `xrizer` | [`Supreeeme/xrizer`](https://github.com/Supreeeme/xrizer), built from the tagged source |
 | `vpx-editor` | [`jsm174/vpx-editor`](https://github.com/jsm174/vpx-editor) release assets: upstream's own `.deb`, republished as-is |
 | `vpxtool` | [`francisdb/vpxtool`](https://github.com/francisdb/vpxtool) release assets (static binaries), repackaged; follows upstream's **latest** release |
+| `pinscape-cross` | [`superhac/pinscape-cross`](https://github.com/superhac/pinscape-cross) release assets: upstream's own `.deb`, republished as-is; follows upstream's **latest** release |
 
-All for amd64 and arm64, except `vpx-editor` (amd64 only). GitHub rejects git files over 100 MB but allows much
+All for amd64 and arm64, except `vpx-editor` and `pinscape-cross` (amd64 only). GitHub rejects git files over 100 MB but allows much
 larger release assets, so the `.deb`s live in releases, not in git.
 
 ## Checking for upstream updates
@@ -26,13 +27,13 @@ scripts/check-upstream.sh
 
 Read-only. For each package it shows the pinned tag next to upstream's
 latest release (pre-releases are only noted) and marks the ones that have a
-newer release. For vpxtool, which is pinned to `latest`, it compares with
-the version in the apt repo instead.
+newer release. For vpxtool and pinscape-cross, which are pinned to
+`latest`, it compares with the version in the apt repo instead.
 
 ## What gets built: `packages.env`
 
-Every package is pinned to an exact upstream release tag (except vpxtool,
-see below) plus our own packaging revision, in [`packages.env`](packages.env), the only place these
+Every package is pinned to an exact upstream release tag (except vpxtool
+and pinscape-cross, see below) plus our own packaging revision, in [`packages.env`](packages.env), the only place these
 are set:
 
 ```sh
@@ -42,7 +43,8 @@ VPINFE_REVISION=4
 
 The resulting package version is the tag without the leading `v`, a `-`, and
 the revision (`2.6.6-4`). vpinball also gets an epoch (`1:10.8.1-…-4`), and
-WiVRn's and vpx-editor's versions come from upstream's own `.deb` (no revision).
+WiVRn's, vpx-editor's and pinscape-cross's versions come from upstream's own
+`.deb` (no revision).
 
 **Only packages whose version isn't published yet are built.**
 [`scripts/plan.sh`](scripts/plan.sh) compares each pinned version with the
@@ -162,6 +164,23 @@ installs it as `/usr/bin/vpxtool`. Version `<tag>-<revision>`. The revision
 only has to go up for a packaging fix and can stay raised across new tags.
 No checksum sidecar upstream; the script checks the ELF machine type.
 
+## pinscape-cross
+
+`PINSCAPE_CROSS_TAG=latest`, resolved by `scripts/plan.sh` the same way as
+vpxtool's: **any run** of Build Debian packages builds a new Pinscape-Cross
+release if one exists. Set an exact tag (`PINSCAPE_CROSS_TAG=v0.7.0`) to pin
+it instead.
+
+Downloads the `Pinscape-Cross_<version>_amd64.deb` asset: a complete Debian
+package of the GUI (a Tauri app, `/usr/bin/pinscape-cross`, plus a udev rule
+that gives non-root users access to the Pinscape Pico and the RP2040/RP2350
+boot ROM for firmware updates), republished unchanged. It depends on
+`libwebkit2gtk-4.1-0` and `libgtk-3-0`. The release's other assets (the
+`.rpm`, the AppImage and the `pinscape-cli-*` tarballs) are never used.
+**amd64 only:** upstream doesn't publish an arm64 `.deb`. Its version is
+upstream's (`0.7.0`, the tag without the `v`), so re-publishing a fixed
+build needs a new tag upstream. There's no checksum sidecar upstream either.
+
 ## xrizer
 
 Upstream only publishes an x86_64 build, so xrizer is built from the
@@ -204,6 +223,7 @@ VPXCONFIG_VERSION=$VPXCONFIG_TAG PACKAGE_REVISION=$VPXCONFIG_REVISION OUTDIR=$PW
 WIVRN_VERSION=$WIVRN_TAG OUTDIR=$PWD/dist scripts/build-wivrn-deb.sh
 VPX_EDITOR_VERSION=$VPX_EDITOR_TAG OUTDIR=$PWD/dist scripts/build-vpx-editor-deb.sh   # amd64 only
 VPXTOOL_VERSION=$VPXTOOL_TAG PACKAGE_REVISION=$VPXTOOL_REVISION OUTDIR=$PWD/dist scripts/build-vpxtool-deb.sh   # needs binutils
+PINSCAPE_CROSS_VERSION=$PINSCAPE_CROSS_TAG OUTDIR=$PWD/dist scripts/build-pinscape-cross-deb.sh   # amd64 only
 ```
 
 xrizer builds for the host's architecture only and needs Rust 1.85 or newer

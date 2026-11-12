@@ -6,7 +6,7 @@
 # release (GitHub's flag, which skips pre-releases and drafts); a newer
 # pre-release is shown as a note, never as an update.
 #
-# A package pinned to "latest" (vpxtool) has nothing pinned to compare, so it
+# A package pinned to "latest" (vpxtool, pinscape-cross) has nothing pinned to compare, so it
 # is compared with the version in the VPinOS apt repo instead: "update" then
 # means a run of Build Debian packages would build it.
 #
@@ -29,6 +29,7 @@ packages=(
   "xrizer     ${XRIZER_REPO:-Supreeeme/xrizer}"
   "vpx-editor ${VPX_EDITOR_REPO:-jsm174/vpx-editor}"
   "vpxtool    ${VPXTOOL_REPO:-francisdb/vpxtool}"
+  "pinscape-cross ${PINSCAPE_CROSS_REPO:-superhac/pinscape-cross}"
 )
 
 packages_file=""
@@ -45,7 +46,7 @@ published_tag() { # <pkg> -> "v<upstream version>" from the apt repo (amd64)
     | sort -V | tail -n1 | sed -E 's/^[0-9]+://; s/-[^-]+$//; s/^/v/'
 }
 
-printf '%-11s %-26s %-26s %s\n' PACKAGE PINNED UPSTREAM STATUS
+printf '%-15s %-26s %-26s %s\n' PACKAGE PINNED UPSTREAM STATUS
 updates=0
 for line in "${packages[@]}"; do
   read -r pkg repo <<<"$line"
@@ -55,7 +56,7 @@ for line in "${packages[@]}"; do
 
   latest="$(gh release view -R "$repo" --json tagName -q .tagName 2>/dev/null || true)"
   if [[ -z "$latest" ]]; then
-    printf '%-11s %-26s %-26s %s\n' "$pkg" "$pinned" "?" "ERROR: no latest release in $repo"
+    printf '%-15s %-26s %-26s %s\n' "$pkg" "$pinned" "?" "ERROR: no latest release in $repo"
     continue
   fi
 
@@ -83,13 +84,13 @@ for line in "${packages[@]}"; do
     status="$status (pre-release $pre available)"
   fi
 
-  printf '%-11s %-26s %-26s %s\n' "$pkg" "$shown" "$latest" "$status"
+  printf '%-15s %-26s %-26s %s\n' "$pkg" "$shown" "$latest" "$status"
 done
 
 echo
 if (( updates )); then
   echo "$updates update(s). Pin the new tag in packages.env (revision back to 1) and push;"
-  echo "for vpxtool just run Build Debian packages."
+  echo "for vpxtool and pinscape-cross just run Build Debian packages."
 else
   echo "Everything is on upstream's latest release."
 fi

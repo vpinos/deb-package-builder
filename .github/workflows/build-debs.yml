@@ -45,6 +45,7 @@ jobs:
       build_xrizer: ${{ steps.plan.outputs.build_xrizer }}
       build_vpx_editor: ${{ steps.plan.outputs.build_vpx_editor }}
       build_vpxtool: ${{ steps.plan.outputs.build_vpxtool }}
+      build_pinscape_cross: ${{ steps.plan.outputs.build_pinscape_cross }}
       version_vpinball: ${{ steps.plan.outputs.version_vpinball }}
       version_vpinfe: ${{ steps.plan.outputs.version_vpinfe }}
       version_vpxconfig: ${{ steps.plan.outputs.version_vpxconfig }}
@@ -53,6 +54,8 @@ jobs:
       version_vpx_editor: ${{ steps.plan.outputs.version_vpx_editor }}
       version_vpxtool: ${{ steps.plan.outputs.version_vpxtool }}
       tag_vpxtool: ${{ steps.plan.outputs.tag_vpxtool }}
+      version_pinscape_cross: ${{ steps.plan.outputs.version_pinscape_cross }}
+      tag_pinscape_cross: ${{ steps.plan.outputs.tag_pinscape_cross }}
       release_tag: vpinos-debs-${{ github.run_number }}
     steps:
       - name: Check out repository
@@ -87,6 +90,7 @@ jobs:
             [ "${{ needs.plan.outputs.build_xrizer }}" = true ]    && echo "- xrizer ${{ needs.plan.outputs.version_xrizer }}"
             [ "${{ needs.plan.outputs.build_vpx_editor }}" = true ] && echo "- vpx-editor ${{ needs.plan.outputs.version_vpx_editor }} (amd64 only)"
             [ "${{ needs.plan.outputs.build_vpxtool }}" = true ]   && echo "- vpxtool ${{ needs.plan.outputs.version_vpxtool }}"
+            [ "${{ needs.plan.outputs.build_pinscape_cross }}" = true ] && echo "- pinscape-cross ${{ needs.plan.outputs.version_pinscape_cross }} (amd64 only)"
             echo
             echo "amd64 + arm64 unless noted. Publish with vpinos/deb-repo's \"Update apt repository\" (source_repo=vpinos/deb-package-builder, tag $RELEASE_TAG)."
           } > notes.md
@@ -367,9 +371,47 @@ jobs:
           RELEASE_TAG: ${{ needs.plan.outputs.release_tag }}
         run: gh release upload "$RELEASE_TAG" -R "$GITHUB_REPOSITORY" dist/vpxtool/*.deb dist/vpxtool/*.sha256 --clobber
 
+  pinscape-cross:
+    needs: [plan, create-release]
+    if: needs.plan.outputs.build_pinscape_cross == 'true' && needs.create-release.result == 'success'
+    strategy:
+      fail-fast: false
+      matrix:
+        # Upstream only publishes a Linux amd64 .deb.
+        arch: [amd64]
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Install pinscape-cross packaging tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y curl dpkg-dev jq
+
+      - name: Fetch pinscape-cross .deb from release asset
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          DEB_ARCH: ${{ matrix.arch }}
+          OUTDIR: ${{ github.workspace }}/dist/pinscape-cross
+          # The tag plan.sh resolved (PINSCAPE_CROSS_TAG may be "latest").
+          PINSCAPE_CROSS_VERSION: ${{ needs.plan.outputs.tag_pinscape_cross }}
+        run: scripts/build-pinscape-cross-deb.sh
+
+      - name: Check version and add checksum
+        env:
+          EXPECTED: ${{ needs.plan.outputs.version_pinscape_cross }}
+        run: scripts/finish-debs.sh dist/pinscape-cross "$EXPECTED"
+
+      - name: Upload to release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ needs.plan.outputs.release_tag }}
+        run: gh release upload "$RELEASE_TAG" -R "$GITHUB_REPOSITORY" dist/pinscape-cross/*.deb dist/pinscape-cross/*.sha256 --clobber
+
   # Publishes the draft only if every selected build succeeded.
   finalize:
-    needs: [plan, create-release, vpinball, vpinfe, vpxconfig, wivrn, xrizer, vpx-editor, vpxtool]
+    needs: [plan, create-release, vpinball, vpinfe, vpxconfig, wivrn, xrizer, vpx-editor, vpxtool, pinscape-cross]
     if: always() && needs.create-release.result == 'success'
     runs-on: ubuntu-24.04
     steps:
@@ -385,6 +427,7 @@ jobs:
             xrizer=${{ needs.xrizer.result }}
             vpx-editor=${{ needs.vpx-editor.result }}
             vpxtool=${{ needs.vpxtool.result }}
+            pinscape-cross=${{ needs.pinscape-cross.result }}
         run: |
           echo "Build results: $RESULTS"
           case " $RESULTS " in
