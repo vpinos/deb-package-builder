@@ -15,8 +15,10 @@ publishes that release into the signed VPinOS apt repository.
 | `vpx-editor` | [`jsm174/vpx-editor`](https://github.com/jsm174/vpx-editor) release assets: upstream's own `.deb`, republished as-is |
 | `vpxtool` | [`francisdb/vpxtool`](https://github.com/francisdb/vpxtool) release assets (static binaries), repackaged; follows upstream's **latest** release |
 | `pinscape-cross` | [`superhac/pinscape-cross`](https://github.com/superhac/pinscape-cross) release assets: upstream's own `.deb`, republished as-is; follows upstream's **latest** release |
+| `vpx-ssf-test-table` | [`superhac/vpx-ssf-test-table`](https://github.com/superhac/vpx-ssf-test-table) release assets (a zipped table folder), repackaged; follows upstream's **latest** release |
 
-All for amd64 and arm64, except `vpx-editor` and `pinscape-cross` (amd64 only). GitHub rejects git files over 100 MB but allows much
+All for amd64 and arm64, except `vpx-editor` and `pinscape-cross` (amd64 only)
+and `vpx-ssf-test-table` (one `Architecture: all` package). GitHub rejects git files over 100 MB but allows much
 larger release assets, so the `.deb`s live in releases, not in git.
 
 ## Checking for upstream updates
@@ -27,13 +29,13 @@ scripts/check-upstream.sh
 
 Read-only. For each package it shows the pinned tag next to upstream's
 latest release (pre-releases are only noted) and marks the ones that have a
-newer release. For vpxtool and pinscape-cross, which are pinned to
+newer release. For vpxtool, pinscape-cross and vpx-ssf-test-table, which are pinned to
 `latest`, it compares with the version in the apt repo instead.
 
 ## What gets built: `packages.env`
 
-Every package is pinned to an exact upstream release tag (except vpxtool
-and pinscape-cross, see below) plus our own packaging revision, in [`packages.env`](packages.env), the only place these
+Every package is pinned to an exact upstream release tag (except vpxtool,
+pinscape-cross and vpx-ssf-test-table, see below) plus our own packaging revision, in [`packages.env`](packages.env), the only place these
 are set:
 
 ```sh
@@ -180,6 +182,24 @@ boot ROM for firmware updates), republished unchanged. It depends on
 **amd64 only:** upstream doesn't publish an arm64 `.deb`. Its version is
 upstream's (`0.7.0`, the tag without the `v`), so re-publishing a fixed
 build needs a new tag upstream. There's no checksum sidecar upstream either.
+
+## vpx-ssf-test-table
+
+The SSF Speaker Test table, which VPinOS's menu offers under Testing.
+`VPX_SSF_TEST_TABLE_TAG=latest`, resolved by `scripts/plan.sh` the same way
+as vpxtool's: **any run** of Build Debian packages builds a new release of
+the table if one exists. Set an exact tag (`VPX_SSF_TEST_TABLE_TAG=v1.0.0`)
+to pin it instead.
+
+Downloads the `SSF_Speaker_Test-<tag>.zip` asset, a single table folder
+(`SSF_Speaker_Test/` with the `.vpx`, its `.directb2s` and `music/`), and
+installs that folder unchanged as
+`/usr/share/vpx-ssf-test-table/SSF_Speaker_Test/`. The script refuses a zip
+without `SSF_Speaker_Test/SSF_Speaker_Test.vpx` or with anything outside
+that folder. It's data only, so it's one `Architecture: all` package with no
+dependencies, built in a single job. Version `<tag>-<revision>`. The revision
+only has to go up for a packaging fix and can stay raised across new tags.
+No checksum sidecar upstream.
 
 ## xrizer
 

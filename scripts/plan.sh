@@ -7,7 +7,8 @@
 # downloaded except the apt index and the WiVRn release metadata.
 #
 # Packages are built for amd64 and arm64, except vpx-editor and
-# pinscape-cross (amd64 only: upstream has no arm64 build). A package name's "-" becomes "_" in its
+# pinscape-cross (amd64 only: upstream has no arm64 build) and
+# vpx-ssf-test-table (Architecture: all, built once). A package name's "-" becomes "_" in its
 # packages.env variables and $GITHUB_OUTPUT keys (vpx-editor ->
 # VPX_EDITOR_TAG, build_vpx_editor).
 #
@@ -21,7 +22,7 @@
 # build_<pkg>=true|false, version_<pkg>=<version>, tag_<pkg>=<tag> and
 # any=true|false to $GITHUB_OUTPUT.
 #
-# A <PKG>_TAG of "latest" (vpxtool and pinscape-cross use it) is resolved here to upstream's
+# A <PKG>_TAG of "latest" (vpxtool, pinscape-cross and vpx-ssf-test-table use it) is resolved here to upstream's
 # current latest release tag; the build jobs get that resolved tag through
 # tag_<pkg>, so a release published mid-run can't make plan and build differ.
 # Exits non-zero on any error. Runs locally too (needs gh).
@@ -39,6 +40,7 @@ apt_tag="${APT_TAG:-apt}"
 archs_for() { # <pkg>
   case "$1" in
     vpx-editor | pinscape-cross) echo "amd64" ;;
+    vpx-ssf-test-table) echo "all" ;;
     *) echo "amd64 arm64" ;;
   esac
 }
@@ -57,6 +59,7 @@ expected_version() { # <pkg> <arch>
     vpxconfig) echo "$(norm "${VPXCONFIG_TAG#v}")-${VPXCONFIG_REVISION}" ;;
     xrizer)    echo "$(norm "${XRIZER_TAG#v}")-${XRIZER_REVISION}" ;;
     vpxtool)   echo "$(norm "${VPXTOOL_TAG#v}")-${VPXTOOL_REVISION}" ;;
+    vpx-ssf-test-table) echo "$(norm "${VPX_SSF_TEST_TABLE_TAG#v}")-${VPX_SSF_TEST_TABLE_REVISION}" ;;
     wivrn)
       # Upstream's own .deb: wivrn_<version>_<arch>.deb
       gh release view "$WIVRN_TAG" -R superhac/WiVRn --json assets -q '.assets[].name' \
@@ -81,10 +84,11 @@ upstream_repo() {
   case "$1" in
     vpxtool) echo "${VPXTOOL_REPO:-francisdb/vpxtool}" ;;
     pinscape-cross) echo "${PINSCAPE_CROSS_REPO:-superhac/pinscape-cross}" ;;
+    vpx-ssf-test-table) echo "${VPX_SSF_TEST_TABLE_REPO:-superhac/vpx-ssf-test-table}" ;;
     *) return 1 ;;
   esac
 }
-for pkg in vpxtool pinscape-cross; do
+for pkg in vpxtool pinscape-cross vpx-ssf-test-table; do
   key="${pkg//-/_}"
   tagvar="${key^^}_TAG"
   if [[ "${!tagvar}" == "latest" ]]; then
@@ -113,7 +117,7 @@ summary "| Package | Pinned | Version | Published | Action |"
 summary "|---|---|---|---|---|"
 errors=0
 any=false
-for pkg in vpinball vpinfe vpxconfig wivrn xrizer vpx-editor vpxtool pinscape-cross; do
+for pkg in vpinball vpinfe vpxconfig wivrn xrizer vpx-editor vpxtool pinscape-cross vpx-ssf-test-table; do
   key="${pkg//-/_}"
   tagvar="${key^^}_TAG"
   tag="${!tagvar}"
