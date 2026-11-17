@@ -59,6 +59,9 @@ jobs:
       build_vpx_ssf_test_table: ${{ steps.plan.outputs.build_vpx_ssf_test_table }}
       version_vpx_ssf_test_table: ${{ steps.plan.outputs.version_vpx_ssf_test_table }}
       tag_vpx_ssf_test_table: ${{ steps.plan.outputs.tag_vpx_ssf_test_table }}
+      build_vpx_dof_test_table: ${{ steps.plan.outputs.build_vpx_dof_test_table }}
+      version_vpx_dof_test_table: ${{ steps.plan.outputs.version_vpx_dof_test_table }}
+      tag_vpx_dof_test_table: ${{ steps.plan.outputs.tag_vpx_dof_test_table }}
       release_tag: vpinos-debs-${{ github.run_number }}
     steps:
       - name: Check out repository
@@ -95,6 +98,7 @@ jobs:
             [ "${{ needs.plan.outputs.build_vpxtool }}" = true ]   && echo "- vpxtool ${{ needs.plan.outputs.version_vpxtool }}"
             [ "${{ needs.plan.outputs.build_pinscape_cross }}" = true ] && echo "- pinscape-cross ${{ needs.plan.outputs.version_pinscape_cross }} (amd64 only)"
             [ "${{ needs.plan.outputs.build_vpx_ssf_test_table }}" = true ] && echo "- vpx-ssf-test-table ${{ needs.plan.outputs.version_vpx_ssf_test_table }} (all architectures)"
+            [ "${{ needs.plan.outputs.build_vpx_dof_test_table }}" = true ] && echo "- vpx-dof-test-table ${{ needs.plan.outputs.version_vpx_dof_test_table }} (all architectures)"
             echo
             echo "amd64 + arm64 unless noted. Publish with vpinos/deb-repo's \"Update apt repository\" (source_repo=vpinos/deb-package-builder, tag $RELEASE_TAG)."
           } > notes.md
@@ -448,9 +452,44 @@ jobs:
           RELEASE_TAG: ${{ needs.plan.outputs.release_tag }}
         run: gh release upload "$RELEASE_TAG" -R "$GITHUB_REPOSITORY" dist/vpx-ssf-test-table/*.deb dist/vpx-ssf-test-table/*.sha256 --clobber
 
+  vpx-dof-test-table:
+    needs: [plan, create-release]
+    if: needs.plan.outputs.build_vpx_dof_test_table == 'true' && needs.create-release.result == 'success'
+    # A table (data only): one Architecture: all .deb, no matrix.
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Install vpx-dof-test-table packaging tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y curl dpkg-dev jq unzip
+
+      - name: Build vpx-dof-test-table .deb from release asset
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          OUTDIR: ${{ github.workspace }}/dist/vpx-dof-test-table
+          # The tag plan.sh resolved (VPX_DOF_TEST_TABLE_TAG may be "latest").
+          VPX_DOF_TEST_TABLE_VERSION: ${{ needs.plan.outputs.tag_vpx_dof_test_table }}
+        run: |
+          . ./packages.env
+          PACKAGE_REVISION="$VPX_DOF_TEST_TABLE_REVISION" scripts/build-vpx-dof-test-table-deb.sh
+
+      - name: Check version and add checksum
+        env:
+          EXPECTED: ${{ needs.plan.outputs.version_vpx_dof_test_table }}
+        run: scripts/finish-debs.sh dist/vpx-dof-test-table "$EXPECTED"
+
+      - name: Upload to release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ needs.plan.outputs.release_tag }}
+        run: gh release upload "$RELEASE_TAG" -R "$GITHUB_REPOSITORY" dist/vpx-dof-test-table/*.deb dist/vpx-dof-test-table/*.sha256 --clobber
+
   # Publishes the draft only if every selected build succeeded.
   finalize:
-    needs: [plan, create-release, vpinball, vpinfe, vpxconfig, wivrn, xrizer, vpx-editor, vpxtool, pinscape-cross, vpx-ssf-test-table]
+    needs: [plan, create-release, vpinball, vpinfe, vpxconfig, wivrn, xrizer, vpx-editor, vpxtool, pinscape-cross, vpx-ssf-test-table, vpx-dof-test-table]
     if: always() && needs.create-release.result == 'success'
     runs-on: ubuntu-24.04
     steps:
@@ -468,6 +507,7 @@ jobs:
             vpxtool=${{ needs.vpxtool.result }}
             pinscape-cross=${{ needs.pinscape-cross.result }}
             vpx-ssf-test-table=${{ needs.vpx-ssf-test-table.result }}
+            vpx-dof-test-table=${{ needs.vpx-dof-test-table.result }}
         run: |
           echo "Build results: $RESULTS"
           case " $RESULTS " in

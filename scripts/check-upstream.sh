@@ -6,7 +6,7 @@
 # release (GitHub's flag, which skips pre-releases and drafts); a newer
 # pre-release is shown as a note, never as an update.
 #
-# A package pinned to "latest" (vpxtool, pinscape-cross, vpx-ssf-test-table) has nothing pinned to compare, so it
+# A package pinned to "latest" (vpxtool, pinscape-cross, the test tables) has nothing pinned to compare, so it
 # is compared with the version in the VPinOS apt repo instead: "update" then
 # means a run of Build Debian packages would build it.
 #
@@ -31,6 +31,7 @@ packages=(
   "vpxtool    ${VPXTOOL_REPO:-francisdb/vpxtool}"
   "pinscape-cross ${PINSCAPE_CROSS_REPO:-superhac/pinscape-cross}"
   "vpx-ssf-test-table ${VPX_SSF_TEST_TABLE_REPO:-superhac/vpx-ssf-test-table}"
+  "vpx-dof-test-table ${VPX_DOF_TEST_TABLE_REPO:-superhac/vpx-dof-test-table}"
 )
 
 packages_file=""
@@ -91,7 +92,7 @@ done
 echo
 if (( updates )); then
   echo "$updates update(s). Pin the new tag in packages.env (revision back to 1) and push;"
-  echo "for vpxtool, pinscape-cross and vpx-ssf-test-table just run Build Debian packages."
+  echo "for vpxtool, pinscape-cross and the test tables just run Build Debian packages."
 else
   echo "Everything is on upstream's latest release."
 fi

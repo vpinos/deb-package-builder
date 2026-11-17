@@ -16,9 +16,10 @@ publishes that release into the signed VPinOS apt repository.
 | `vpxtool` | [`francisdb/vpxtool`](https://github.com/francisdb/vpxtool) release assets (static binaries), repackaged; follows upstream's **latest** release |
 | `pinscape-cross` | [`superhac/pinscape-cross`](https://github.com/superhac/pinscape-cross) release assets: upstream's own `.deb`, republished as-is; follows upstream's **latest** release |
 | `vpx-ssf-test-table` | [`superhac/vpx-ssf-test-table`](https://github.com/superhac/vpx-ssf-test-table) release assets (a zipped table folder), repackaged; follows upstream's **latest** release |
+| `vpx-dof-test-table` | [`superhac/vpx-dof-test-table`](https://github.com/superhac/vpx-dof-test-table) release assets (a zipped table folder), repackaged; follows upstream's **latest** release |
 
 All for amd64 and arm64, except `vpx-editor` and `pinscape-cross` (amd64 only)
-and `vpx-ssf-test-table` (one `Architecture: all` package). GitHub rejects git files over 100 MB but allows much
+and `vpx-ssf-test-table` and `vpx-dof-test-table` (one `Architecture: all` package each). GitHub rejects git files over 100 MB but allows much
 larger release assets, so the `.deb`s live in releases, not in git.
 
 ## Checking for upstream updates
@@ -29,13 +30,13 @@ scripts/check-upstream.sh
 
 Read-only. For each package it shows the pinned tag next to upstream's
 latest release (pre-releases are only noted) and marks the ones that have a
-newer release. For vpxtool, pinscape-cross and vpx-ssf-test-table, which are pinned to
+newer release. For vpxtool, pinscape-cross and the two test tables, which are pinned to
 `latest`, it compares with the version in the apt repo instead.
 
 ## What gets built: `packages.env`
 
 Every package is pinned to an exact upstream release tag (except vpxtool,
-pinscape-cross and vpx-ssf-test-table, see below) plus our own packaging revision, in [`packages.env`](packages.env), the only place these
+pinscape-cross and the two test tables, see below) plus our own packaging revision, in [`packages.env`](packages.env), the only place these
 are set:
 
 ```sh
@@ -200,6 +201,16 @@ that folder. It's data only, so it's one `Architecture: all` package with no
 dependencies, built in a single job. Version `<tag>-<revision>`. The revision
 only has to go up for a packaging fix and can stay raised across new tags.
 No checksum sidecar upstream.
+
+## vpx-dof-test-table
+
+The DOF Test table, which VPinOS's menu offers under Testing. Built exactly
+like vpx-ssf-test-table (`VPX_DOF_TEST_TABLE_TAG=latest`, version
+`<tag>-<revision>`, one `Architecture: all` package): it downloads
+`DOF_test-<tag>.zip`, a single table folder (`DOF_test/` with the `.vpx` and
+its `.directb2s`), and installs it unchanged as
+`/usr/share/vpx-dof-test-table/DOF_test/`. The script refuses a zip without
+`DOF_test/DOF_test.vpx` or with anything outside that folder.
 
 ## xrizer
 
