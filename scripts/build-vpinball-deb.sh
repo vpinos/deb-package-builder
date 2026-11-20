@@ -94,6 +94,11 @@ Categories=Game;Emulator;
 DESKTOP
 
 installed_size="$(du -sk "$pkgroot" | awk '{print $1}')"
+# Breaks: VPX 10.9 keeps its settings in ~/.local/share/VPinballX/10.9
+# instead of 10.8. vpinos-core before 1.1.30 has 10.8 hard-coded, so its
+# VPinOS Configuration and VR switch would edit a file VPX no longer reads.
+# This makes apt upgrade vpinos-core along with vpinball. It has no effect
+# on systems without vpinos-core.
 cat > "$pkgroot/DEBIAN/control" <<CONTROL
 Package: vpinball
 Version: ${package_version}
@@ -101,6 +106,7 @@ Architecture: ${arch}
 Maintainer: Superhac <superhac007@gmail.com>
 Installed-Size: ${installed_size}
 Depends: ${depends}
+Breaks: vpinos-core (<< 1.1.30)
 Section: games
 Priority: optional
 Homepage: https://github.com/vpinball/vpinball
