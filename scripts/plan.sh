@@ -51,11 +51,14 @@ command -v dpkg >/dev/null || { echo "dpkg is required." >&2; exit 1; }
 # Same normalisation as the build scripts.
 norm() { printf '%s' "$1" | tr '_' '.' | sed -E 's/[^A-Za-z0-9.+:~]/./g'; }
 norm_dash() { printf '%s' "$1" | tr '_' '.' | sed -E 's/[^A-Za-z0-9.+:~-]/./g'; }
+# A pre-release tag (3.0.0-beta.4) becomes 3.0.0~beta.4, which sorts below
+# 3.0.0. Same as build-vpinfe-deb.sh.
+norm_pre() { norm "$(printf '%s' "$1" | sed -E 's/-([A-Za-z])/~\1/')"; }
 
 expected_version() { # <pkg> <arch>
   case "$1" in
     vpinball)  echo "1:$(norm_dash "${VPINBALL_TAG#v}")-${VPINBALL_REVISION}" ;;
-    vpinfe)    echo "$(norm "${VPINFE_TAG#v}")-${VPINFE_REVISION}" ;;
+    vpinfe)    echo "$(norm_pre "${VPINFE_TAG#v}")-${VPINFE_REVISION}" ;;
     vpxconfig) echo "$(norm "${VPXCONFIG_TAG#v}")-${VPXCONFIG_REVISION}" ;;
     xrizer)    echo "$(norm "${XRIZER_TAG#v}")-${XRIZER_REVISION}" ;;
     vpxtool)   echo "$(norm "${VPXTOOL_TAG#v}")-${VPXTOOL_REVISION}" ;;

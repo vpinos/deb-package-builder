@@ -8,7 +8,7 @@ publishes that release into the signed VPinOS apt repository.
 | Package | From |
 |---|---|
 | `vpinball` | [`superhac/vpinball`](https://github.com/superhac/vpinball) release assets, repackaged |
-| `vpinfe` | [`superhac/vpinfe`](https://github.com/superhac/vpinfe) release assets (slim builds), repackaged |
+| `vpinfe` | [`vpinfe/vpinfe`](https://github.com/vpinfe/vpinfe) release assets (slim builds), repackaged; pre-releases go to the beta channel (see [VPinFE betas](#vpinfe-betas)) |
 | `vpxconfig` | [`vpinos/vpxconfig`](https://github.com/vpinos/vpxconfig) release assets, repackaged |
 | `wivrn` | [`superhac/WiVRn`](https://github.com/superhac/WiVRn) release assets: upstream's own `.deb`s, republished as-is |
 | `xrizer` | [`Supreeeme/xrizer`](https://github.com/Supreeeme/xrizer), built from the tagged source |
@@ -115,6 +115,40 @@ scripts/plan.sh          # needs gh; prints the plan, exits non-zero on errors
 
 For how this fits with the other VPinOS repos, see `notes/publishing.md` in
 the VPinOS repo.
+
+## VPinFE betas
+
+VPinFE pre-releases (e.g. `v3.0.0-beta.4`) are built by a separate manual
+workflow, **Build VPinFE beta**, and published to the apt repo's **beta
+channel** (`apt-beta`), which only cabinets that joined the beta use
+(VPinOS menu: Setup > VPinFE 3.0 Beta). `packages.env` and **Build Debian
+packages** are untouched: the stable channel keeps `VPINFE_TAG`.
+
+1. Run it with the VPinFE tag and revision `1` (raise the revision for a
+   packaging fix to the same beta):
+
+   ```bash
+   gh workflow run build-vpinfe-beta.yml -R vpinos/deb-package-builder \
+     -f tag=v3.0.0-beta.4 -f revision=1
+   ```
+
+   It builds amd64 and arm64 into a draft release
+   `vpinfe-beta-<tag>-<revision>`, and makes it public once both succeeded.
+2. Publish that release to the beta channel (the run summary prints this
+   command):
+
+   ```bash
+   gh workflow run update-repo.yml -R vpinos/deb-repo \
+     -f source_repo=vpinos/deb-package-builder \
+     -f source_release_tag=vpinfe-beta-v3.0.0-beta.4-1 -f channel=beta
+   ```
+
+The version is the tag with its pre-release dash turned into a tilde:
+`v3.0.0-beta.4` revision 1 is `3.0.0~beta.4-1`. dpkg sorts that above every
+2.x and **below** `3.0.0`, so beta testers upgrade to the release when it's
+published to the stable channel. The `.deb`'s file name uses a dash instead
+(`vpinfe_3.0.0-beta.4-1_amd64.deb`), because GitHub may rename a release
+asset with a tilde in it.
 
 ## vpinball
 

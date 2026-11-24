@@ -15,6 +15,12 @@ debs=("$dir"/*.deb)
 (( ${#debs[@]} )) || { echo "No .deb files in $dir." >&2; exit 1; }
 
 for deb in "${debs[@]}"; do
+  # GitHub may rename a release asset with any other character, which would
+  # break the .sha256 sidecar and the apt index's Filename.
+  if [[ ! "$(basename "$deb")" =~ ^[A-Za-z0-9._+-]+$ ]]; then
+    echo "$(basename "$deb"): a release asset name may only use letters, digits and . _ + -" >&2
+    exit 1
+  fi
   got="$(dpkg-deb -f "$deb" Version)"
   if [[ "$got" != "$expected" ]]; then
     echo "$(basename "$deb") has version $got, but the plan expected $expected." >&2

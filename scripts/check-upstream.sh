@@ -23,7 +23,7 @@ command -v gh >/dev/null || { echo "gh is required." >&2; exit 1; }
 # package  upstream repo (same defaults as the build scripts)
 packages=(
   "vpinball   ${VPINBALL_REPO:-superhac/vpinball}"
-  "vpinfe     ${VPINFE_REPO:-superhac/vpinfe}"
+  "vpinfe     ${VPINFE_REPO:-vpinfe/vpinfe}"
   "vpxconfig  ${VPXCONFIG_REPO:-vpinos/vpxconfig}"
   "wivrn      ${WIVRN_REPO:-superhac/WiVRn}"
   "xrizer     ${XRIZER_REPO:-Supreeeme/xrizer}"

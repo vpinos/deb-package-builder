@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-repo="${VPINFE_REPO:-superhac/vpinfe}"
+repo="${VPINFE_REPO:-vpinfe/vpinfe}"
 version="${VPINFE_VERSION:-latest}"
 triplet="${VPINFE_TRIPLET:-linux-x64-slim}"
 revision="${PACKAGE_REVISION:-1}"
@@ -73,8 +73,16 @@ fi
 app_src="$(dirname "$vpinfe_bin")"
 
 upstream_version="${version#v}"
-upstream_version="$(printf '%s' "$upstream_version" | tr '_' '.' | sed -E 's/[^A-Za-z0-9.+:~]/./g')"
+# A pre-release (v3.0.0-beta.4) gets a tilde, 3.0.0~beta.4, so dpkg sorts it
+# below the release it leads to (3.0.0) and above everything before it. With
+# a dot (3.0.0.beta.4) it would sort ABOVE 3.0.0, and a beta tester would
+# never upgrade to the release. plan.sh's norm_pre does the same.
+upstream_version="$(printf '%s' "$upstream_version" | sed -E 's/-([A-Za-z])/~\1/' | tr '_' '.' | sed -E 's/[^A-Za-z0-9.+:~]/./g')"
 package_version="${upstream_version}-${revision}"
+# The file name carries no tilde: GitHub may rename a release asset with one,
+# which would break its .sha256 sidecar and the apt index. Only the name
+# changes; the package's Version keeps the tilde.
+file_version="${package_version//\~/-}"
 
 pkgroot="$workdir/pkgroot"
 rm -rf "$pkgroot"
@@ -116,6 +124,6 @@ Description: VPinFE frontend for Visual Pinball
  This package installs the upstream Linux release bundle.
 CONTROL
 
-deb_path="$outdir/vpinfe_${package_version}_${arch}.deb"
+deb_path="$outdir/vpinfe_${file_version}_${arch}.deb"
 dpkg-deb --build --root-owner-group "$pkgroot" "$deb_path"
 echo "$deb_path"

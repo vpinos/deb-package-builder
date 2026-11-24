@@ -1,0 +1,139 @@
+name: Build VPinFE beta
+
+# Builds one VPinFE pre-release (e.g. v3.0.0-beta.4) for amd64 and arm64 into
+# a new release vpinfe-beta-<tag>-<revision>, for the VPinOS beta channel.
+# packages.env and the normal "Build Debian packages" run are untouched: the
+# stable channel keeps VPINFE_TAG.
+#
+#   Actions > Build VPinFE beta > Run workflow (tag, revision)
+#
+# The package version is <tag without v, pre-release dash as ~>-<revision>,
+# so v3.0.0-beta.4 revision 1 is 3.0.0~beta.4-1: above every 2.x and below
+# 3.0.0, so beta testers upgrade to the release when it comes. A packaging fix
+# to the same beta raises the revision.
+#
+# The release is created as a draft and only made public once both builds
+# succeeded. Then publish it to the BETA channel: deb-repo > Update apt
+# repository, source_repo vpinos/deb-package-builder, tag
+# vpinfe-beta-<tag>-<revision>, channel beta.
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: VPinFE pre-release tag (e.g. v3.0.0-beta.4)
+        required: true
+      revision:
+        description: Package revision (1 for a new beta, higher for a packaging fix)
+        required: true
+        default: "1"
+
+permissions:
+  contents: write
+
+concurrency:
+  group: build-vpinfe-beta
+  cancel-in-progress: false
+
+jobs:
+  plan:
+    runs-on: ubuntu-24.04
+    outputs:
+      version: ${{ steps.plan.outputs.version }}
+      release_tag: ${{ steps.plan.outputs.release_tag }}
+    steps:
+      - name: Check the tag and work out the version
+        id: plan
+        env:
+          TAG: ${{ inputs.tag }}
+          REVISION: ${{ inputs.revision }}
+        run: |
+          if [[ ! "$TAG" =~ ^v[0-9]+(\.[0-9]+)*-[A-Za-z][A-Za-z0-9.]*$ ]]; then
+            echo "Not a pre-release tag: $TAG (expected e.g. v3.0.0-beta.4)." >&2
+            exit 1
+          fi
+          if [[ ! "$REVISION" =~ ^[1-9][0-9]*$ ]]; then
+            echo "Revision must be a positive number: $REVISION" >&2
+            exit 1
+          fi
+          # Same as build-vpinfe-deb.sh: v3.0.0-beta.4 -> 3.0.0~beta.4.
+          upstream="$(printf '%s' "${TAG#v}" | sed -E 's/-([A-Za-z])/~\1/' | tr '_' '.' | sed -E 's/[^A-Za-z0-9.+:~]/./g')"
+          version="${upstream}-${REVISION}"
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "release_tag=vpinfe-beta-${TAG}-${REVISION}" >> "$GITHUB_OUTPUT"
+          echo "Building vpinfe $version from $TAG" >> "$GITHUB_STEP_SUMMARY"
+
+  create-release:
+    needs: plan
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Create draft release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ needs.plan.outputs.release_tag }}
+          VERSION: ${{ needs.plan.outputs.version }}
+        run: |
+          if gh release view "$RELEASE_TAG" -R "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            echo "Release $RELEASE_TAG already exists: raise the revision." >&2
+            exit 1
+          fi
+          {
+            echo "VPinFE beta $VERSION (amd64 + arm64), for the VPinOS beta channel."
+            echo
+            echo "Publish with vpinos/deb-repo's \"Update apt repository\" (source_repo=vpinos/deb-package-builder, tag $RELEASE_TAG, channel beta)."
+          } > notes.md
+          gh release create "$RELEASE_TAG" -R "$GITHUB_REPOSITORY" --draft --prerelease \
+            --target "$GITHUB_SHA" --title "VPinFE beta $VERSION" --notes-file notes.md
+
+  vpinfe:
+    needs: [plan, create-release]
+    strategy:
+      fail-fast: false
+      matrix:
+        triplet: [linux-x64-slim, linux-arm64-slim]
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Install vpinfe packaging tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y curl dpkg-dev jq unzip
+
+      - name: Build vpinfe .deb from release asset
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          VPINFE_TRIPLET: ${{ matrix.triplet }}
+          VPINFE_VERSION: ${{ inputs.tag }}
+          PACKAGE_REVISION: ${{ inputs.revision }}
+          OUTDIR: ${{ github.workspace }}/dist/vpinfe
+        run: scripts/build-vpinfe-deb.sh
+
+      - name: Check version and add checksum
+        env:
+          EXPECTED: ${{ needs.plan.outputs.version }}
+        run: scripts/finish-debs.sh dist/vpinfe "$EXPECTED"
+
+      - name: Upload to release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ needs.plan.outputs.release_tag }}
+        run: gh release upload "$RELEASE_TAG" -R "$GITHUB_REPOSITORY" dist/vpinfe/*.deb dist/vpinfe/*.sha256 --clobber
+
+  publish-release:
+    needs: [plan, vpinfe]
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Make the release public
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ needs.plan.outputs.release_tag }}
+        run: |
+          gh release edit "$RELEASE_TAG" -R "$GITHUB_REPOSITORY" --draft=false
+          {
+            echo "Released **$RELEASE_TAG**. Publish it to the apt repo's beta channel:"
+            echo
+            echo '```'
+            echo "gh workflow run update-repo.yml -R vpinos/deb-repo -f source_repo=vpinos/deb-package-builder -f source_release_tag=$RELEASE_TAG -f channel=beta"
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
